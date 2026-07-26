@@ -1,6 +1,6 @@
 # AutoPA für Mellow FLY-ALPS und Klipper
 
-[English](README.md) | [Deutsch](README.de.md)
+[English](README.md) | [Deutsch](README.de.md) | [Änderungsprotokoll](CHANGELOG.md)
 
 AutoPA zeichnet die Düsenkraft eines Mellow FLY-ALPS zusammen mit der realen
 Werkzeugkopfbeschleunigung eines LIS2DW auf einem EBB42 Gen2 auf. Beide
