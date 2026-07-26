@@ -1,9 +1,13 @@
 # AutoPA for Mellow FLY-ALPS and Klipper
 
+[English](README.md) | [Deutsch](README.de.md)
+
 AutoPA records nozzle-force data from a Mellow FLY-ALPS together with real
 toolhead acceleration from the LIS2DW on an EBB42 Gen2. The streams are aligned
 on Klipper's `print_time` clock and will be used for a supervised,
 sensor-assisted Pressure Advance sweep.
+
+![AutoPA dashboard showing printer, sensor and measurement status](docs/images/autopa-dashboard.png)
 
 An optional local dashboard displays live force, movement, temperature,
 Pressure Advance, measurement health and editable PLA/ABS/PETG/ASA/TPU test
