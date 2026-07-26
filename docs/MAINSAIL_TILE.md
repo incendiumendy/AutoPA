@@ -72,6 +72,10 @@ Kachel daher entfernen. Für jede neue Mainsail-Version muss zuerst die
 Kompatibilität des Quellcodes geprüft, die unterstützte Version ausdrücklich
 freigegeben und ein neuer Build erzeugt werden.
 
+Der getrennte Build bringt außerdem die Seitenleisten-Links **AutoPA** und
+**Local Vision** selbst mit und vermeidet dabei Duplikate. Dafür muss
+`.theme/navi.json` nicht verändert werden.
+
 Auf RatOS sollte der fertige Build in einem eigenen, versionierten Webroot
 installiert werden, zum Beispiel unter
 `~/mainsail-autopa/releases/<version>`. Ein Symlink
@@ -109,6 +113,10 @@ The build intentionally does not modify the RatOS Theme repository or
 `navi.json`. A later normal Mainsail update may overwrite the custom web
 assets, so every new Mainsail release must be reviewed and explicitly added to
 the compatibility list before rebuilding.
+
+The separate build also supplies the **AutoPA** and **Local Vision** sidebar
+links itself and avoids duplicates, so `.theme/navi.json` does not need to be
+modified.
 
 On RatOS, install the build in a separate versioned webroot such as
 `~/mainsail-autopa/releases/<version>`. Point

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 SUPPORTED_MAINSAIL_VERSIONS = {"2.18.2"}
-INTEGRATION_VERSION = 2
+INTEGRATION_VERSION = 3
 
 
 def _replace_once(path, old, new):
@@ -110,6 +110,60 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "                return mdiChartTimelineVariant\n"
         "            case 'webcam':\n")
 
+    navigation = output / "src/components/mixins/navigation.ts"
+    _replace_once(
+        navigation,
+        "import { mdiLinkVariant, mdiViewDashboardOutline } from '@mdi/js'\n",
+        "import {\n"
+        "    mdiChartTimelineVariant,\n"
+        "    mdiEyeOutline,\n"
+        "    mdiLinkVariant,\n"
+        "    mdiViewDashboardOutline,\n"
+        "} from '@mdi/js'\n")
+    _replace_once(
+        navigation,
+        "        // stop if no file is set\n"
+        "        if (!newVal) return\n\n"
+        "        const content = await fetch(newVal)\n"
+        "            .then((res) => res.json())\n"
+        "            .catch((err) => {\n"
+        "                window.console.error('Unable to parse .theme/navi.json.')\n"
+        "                throw err\n"
+        "            })\n\n"
+        "        content.forEach((item: NaviPoint) => {\n",
+        "        const content: NaviPoint[] = newVal\n"
+        "            ? await fetch(newVal)\n"
+        "                  .then((res) => res.json())\n"
+        "                  .catch((err) => {\n"
+        "                      window.console.error('Unable to parse .theme/navi.json.')\n"
+        "                      throw err\n"
+        "                  })\n"
+        "            : []\n\n"
+        "        const bundledLinks: NaviPoint[] = [\n"
+        "            {\n"
+        "                type: 'link',\n"
+        "                title: 'AutoPA',\n"
+        "                href: '/autopa/',\n"
+        "                target: '',\n"
+        "                position: 83,\n"
+        "                icon: mdiChartTimelineVariant,\n"
+        "                visible: true,\n"
+        "            },\n"
+        "            {\n"
+        "                type: 'link',\n"
+        "                title: 'Local Vision',\n"
+        "                href: '/local-vision/',\n"
+        "                target: '',\n"
+        "                position: 84,\n"
+        "                icon: mdiEyeOutline,\n"
+        "                visible: true,\n"
+        "            },\n"
+        "        ]\n"
+        "        bundledLinks.forEach((link) => {\n"
+        "            if (!content.some((item) => item.href === link.href)) content.push(link)\n"
+        "        })\n\n"
+        "        content.forEach((item: NaviPoint) => {\n")
+
     manifest = {
         "format_version": INTEGRATION_VERSION,
         "mainsail_version": version,
@@ -120,6 +174,10 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "optional_health": {
             "local_vision": "/local-vision/api/health",
         },
+        "navigation_links": [
+            "/autopa/",
+            "/local-vision/",
+        ],
         "control_policy": "off_or_dry_run_only",
         "source_modified": False,
     }
@@ -133,6 +191,7 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
             "panel",
             "api",
             "optional_health",
+            "navigation_links",
             "control_policy",
             "source_modified",
         )
