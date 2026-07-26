@@ -1,9 +1,13 @@
 # AutoPA for Mellow FLY-ALPS and Klipper
 
+[English](README.md) | [Deutsch](README.de.md)
+
 AutoPA records nozzle-force data from a Mellow FLY-ALPS together with real
 toolhead acceleration from the LIS2DW on an EBB42 Gen2. The streams are aligned
 on Klipper's `print_time` clock and will be used for a supervised,
 sensor-assisted Pressure Advance sweep.
+
+![AutoPA dashboard showing printer, sensor and measurement status](docs/images/autopa-dashboard.png)
 
 An optional local dashboard displays live force, movement, temperature,
 Pressure Advance, measurement health and editable PLA/ABS/PETG/ASA/TPU test
@@ -285,11 +289,22 @@ See [material and temperature characterization](docs/MATERIAL_TEMPERATURE.md).
 
 ## References and attribution
 
+AutoPA is an independent implementation with its own Git history. It is **not
+a fork** of PrusaPATuner, KAPAT, Klipper or RatOS. Its experimental direction
+is inspired by both
+[CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner) and
+[vzagranichnyy/KAPAT](https://github.com/vzagranichnyy/KAPAT); their source
+files are not vendored in AutoPA.
+
 The test shape and planned analysis compare step response, phase lag and
-integral area, inspired by the research in
-[CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner).
-PrusaPATuner targets Buddy firmware and is not copied into this project;
-Klipper uses different commands, timing and acquisition paths.
+integral area, inspired by the load-cell-based PA research in PrusaPATuner and
+the Klipper/Mellow-ALPS experiment in KAPAT. PrusaPATuner targets Buddy
+firmware, while KAPAT demonstrates a Klipper-specific path. AutoPA uses its own
+commands, timing, acquisition and analysis implementation.
+
+The files below `backport/klipper/` include GPLv3-licensed Klipper-derived
+backport material with the upstream copyright headers retained. See
+[Third-party notices](THIRD_PARTY_NOTICES.md) for the exact scope and links.
 
 - [Mellow FLY-ALPS web tool](https://mellow.klipper.cn/en/docs/ToolsDoc/fly-alps-tool/)
 - [Klipper Pressure Advance](https://www.klipper3d.org/Pressure_Advance.html)
