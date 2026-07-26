@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autopa-klipper"
-version = "0.1.0.dev0"
+version = "0.1.0a1"
 description = "Synchronized Mellow FLY-ALPS and LIS2DW acquisition for Klipper"
 readme = "README.md"
 requires-python = ">=3.9"

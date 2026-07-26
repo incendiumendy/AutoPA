@@ -1,6 +1,6 @@
 # AutoPA for Mellow FLY-ALPS and Klipper
 
-[English](README.md) | [Deutsch](README.de.md)
+[English](README.md) | [Deutsch](README.de.md) | [Changelog](CHANGELOG.md)
 
 AutoPA records nozzle-force data from a Mellow FLY-ALPS together with real
 toolhead acceleration from the LIS2DW on an EBB42 Gen2. The streams are aligned
