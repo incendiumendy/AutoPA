@@ -56,10 +56,30 @@ if [ "$ENABLE_CONFIG" -eq 1 ]; then
         printf '%s\n' "printer.cfg not found: $PRINTER_CONFIG" >&2
         exit 1
     }
-    if ! grep -Eq '^[[:space:]]*\[include[[:space:]]+autopa\.cfg\]' \
-            "$PRINTER_CONFIG"; then
-        printf '\n[include autopa.cfg]\n' >> "$PRINTER_CONFIG"
-    fi
+    TEMP_CONFIG=$(mktemp "$PRINTER_CONFIG.autopa.XXXXXX")
+    trap 'rm -f "$TEMP_CONFIG"' EXIT HUP INT TERM
+    awk '
+        BEGIN { inserted = 0 }
+        /^[[:space:]]*\[include[[:space:]]+autopa\.cfg\][[:space:]]*$/ {
+            next
+        }
+        /^#\*# <[-]+ SAVE_CONFIG [-]+>$/ && !inserted {
+            print ""
+            print "[include autopa.cfg]"
+            print ""
+            inserted = 1
+        }
+        { print }
+        END {
+            if (!inserted) {
+                print ""
+                print "[include autopa.cfg]"
+            }
+        }
+    ' "$PRINTER_CONFIG" > "$TEMP_CONFIG"
+    chmod 0644 "$TEMP_CONFIG"
+    mv "$TEMP_CONFIG" "$PRINTER_CONFIG"
+    trap - EXIT HUP INT TERM
 fi
 
 printf '%s\n' "AutoPA module installed: $TARGET_MODULE"
