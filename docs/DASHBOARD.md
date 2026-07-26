@@ -59,6 +59,17 @@ Each chart footer has its own status point:
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
 
+## Native movable Mainsail tile
+
+An optional pinned-source Mainsail integration provides a real dashboard panel
+that can be moved, hidden and collapsed through Mainsail's normal dashboard
+settings. It shows the compact AutoPA state, G-code context, executed speed and
+volumetric flow and permits only `off`/`dry_run` switching.
+
+It does not modify RatOS Theme or `navi.json`, and it cannot arm printer
+commands. See the bilingual
+[native Mainsail tile guide](MAINSAIL_TILE.md).
+
 ## Data path
 
 The recorder remains the only process that opens the FLY-ALPS serial port. At

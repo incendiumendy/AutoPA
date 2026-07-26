@@ -110,6 +110,7 @@ config/
 docs/                installation, protocol, compatibility and safety notes
 tests/               dependency-free unit tests
 dashboard/           responsive browser interface and static production build
+integrations/mainsail native movable AutoPA panel for a pinned Mainsail build
 ```
 
 ## Install the safe factory-firmware mode
@@ -179,6 +180,11 @@ than relying on Moonraker's look-ahead-affected file position. Missing or
 unsupported context never interrupts a print; it suppresses context-assisted
 PA evaluation instead. See the bilingual
 [G-Code Context Engine guide](docs/GCODE_CONTEXT.md).
+
+For Mainsail `2.18.2`, AutoPA also provides an optional native panel that can
+be moved, hidden and collapsed with Mainsail's normal dashboard settings. It
+shows compact live/context data and can switch only command-free dry-run on or
+off. See [native Mainsail tile](docs/MAINSAIL_TILE.md).
 
 Repeated quality-approved runs can be pooled without admitting rejected data:
 
