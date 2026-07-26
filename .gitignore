@@ -1,0 +1,25 @@
+# Local printer backups may contain machine-specific details. Keep them local.
+/backups/
+
+# Downloaded upstream source trees used only to prepare/review patches.
+/.reference/
+
+# Local measurement datasets are intentionally not committed.
+/captures/*
+!/captures/.gitkeep
+
+# Python bytecode and local environments.
+__pycache__/
+*.py[cod]
+/.venv/
+/build/
+
+# Dashboard dependency caches and generated build output.
+/dashboard/node_modules/
+/dashboard/.npm-cache/
+/dashboard/.next/
+/dashboard/dist/
+
+# Machine-specific force calibrations belong with the printer configuration.
+/*calibration.local.json
+/config/*calibration.local.json

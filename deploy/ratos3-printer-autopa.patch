@@ -1,0 +1,11 @@
+--- printer.cfg
++++ printer.cfg
+@@ -76,7 +76,8 @@
+ pin: ^probe_pin
+ 
+ # Keep all EBB42 Gen2 pins last so they override RatOS base defaults.
+ [include EBB42_Gen2.cfg]
++[include autopa.cfg]
+ 
+ # Lighting migrated from the previous printer.cfg
+ [output_pin caselight]

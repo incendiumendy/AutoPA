@@ -1,0 +1,61 @@
+diff --git a/klippy/extras/load_cell.py b/klippy/extras/load_cell.py
+index 114f36b..f19b143 100644
+--- a/klippy/extras/load_cell.py
++++ b/klippy/extras/load_cell.py
+@@ -5,6 +5,7 @@
+ # This file may be distributed under the terms of the GNU GPLv3 license.
+ from . import hx71x
+ from . import ads1220
++from . import ads131m0x
+ 
+ # Printer class that controls a load cell
+ class LoadCell:
+@@ -23,6 +24,7 @@ def load_config(config):
+     sensors = {}
+     sensors.update(hx71x.HX71X_SENSOR_TYPES)
+     sensors.update(ads1220.ADS1220_SENSOR_TYPE)
++    sensors.update(ads131m0x.ADS131M0X_SENSOR_TYPES)
+     sensor_class = config.getchoice('sensor_type', sensors)
+     return LoadCell(config, sensor_class(config))
+ 
+diff --git a/src/Kconfig b/src/Kconfig
+index 9bf2a64..a6d1f32 100644
+--- a/src/Kconfig
++++ b/src/Kconfig
+@@ -116,6 +116,10 @@ config WANT_ADS1220
+     bool
+     depends on HAVE_GPIO_SPI
+     default y
++config WANT_ADS131M0X
++    bool
++    depends on HAVE_GPIO_SPI
++    default y
+ config WANT_SOFTWARE_I2C
+     bool
+     depends on HAVE_GPIO && HAVE_GPIO_I2C
+@@ -127,6 +131,6 @@ config NEED_SENSOR_BULK
+     bool
+     depends on WANT_SENSORS || WANT_LIS2DW || WANT_LDC1612 || WANT_HX71X \
+-        || WANT_ADS1220
++        || WANT_ADS1220 || WANT_ADS131M0X
+     default y
+ menu "Optional features (to reduce code size)"
+     depends on HAVE_LIMITED_CODE_SIZE
+@@ -152,5 +156,8 @@ config WANT_ADS1220
+     bool "Support ADS 1220 ADC chip"
+     depends on HAVE_GPIO_SPI
++config WANT_ADS131M0X
++    bool "Support ADS131M02/M04 ADC chips"
++    depends on HAVE_GPIO_SPI
+ config WANT_SOFTWARE_I2C
+     bool "Support software based I2C \"bit-banging\""
+     depends on HAVE_GPIO && HAVE_GPIO_I2C
+diff --git a/src/Makefile b/src/Makefile
+index fc943e4..4de3a87 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -22,3 +22,4 @@ src-$(CONFIG_WANT_LDC1612) += sensor_ldc1612.c
+ src-$(CONFIG_WANT_HX71X) += sensor_hx71x.c
+ src-$(CONFIG_WANT_ADS1220) += sensor_ads1220.c
++src-$(CONFIG_WANT_ADS131M0X) += sensor_ads131m0x.c
+ src-$(CONFIG_NEED_SENSOR_BULK) += sensor_bulk.c

@@ -1,0 +1,21 @@
+# Enable only after the ALPS load cell works and the LIS2DW has passed
+# ACCELEROMETER_QUERY CHIP=toolboard_t0.
+
+[autopa_capture]
+load_cell: alps
+accelerometer: toolboard_t0
+# The default is ~/printer_data/autopa.
+# data_dir: /home/pi/printer_data/autopa
+
+# Manual smoke test:
+#   AUTOPA_CAPTURE_START NAME=idle_10s
+#   G4 P10000
+#   AUTOPA_CAPTURE_MARK EVENT=idle_complete
+#   AUTOPA_CAPTURE_STOP
+
+# For the preferred factory-firmware serial recorder use this instead:
+#
+# [autopa_clock]
+#
+# It only exposes the mapping between Linux monotonic time and Klipper
+# print_time. It does not move the printer, change PA or access the probe.

@@ -1,0 +1,17 @@
+# Replace OWNER before enabling this section. The repository must already be
+# cloned at the matching path and remain a pristine Git checkout.
+#
+# Include this file from moonraker.conf, for example:
+#   [include moonraker-autopa.conf]
+
+[update_manager AutoPA]
+type: git_repo
+channel: dev
+path: /home/pi/AutoPA
+origin: https://github.com/OWNER/AutoPA.git
+primary_branch: main
+is_system_service: False
+managed_services:
+  klipper
+info_tags:
+  desc=ALPS and LIS2DW Pressure Advance research

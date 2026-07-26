@@ -1,0 +1,30 @@
+# FLY-ALPS raw load-cell input for the RatOS compatibility backport.
+#
+# DO NOT include this file until the matched ALPS MCU firmware and host patch
+# are installed and Klipper has passed the no-load-cell restart test.
+#
+# This is deliberately independent of the existing [probe] section. Keep the
+# RatOS/Mellow digital probe configured for bed probing until a separate,
+# fully-tested load-cell-probe migration is explicitly completed.
+
+[mcu fly_alps]
+serial: /dev/serial/by-id/usb-Klipper_stm32f072_YOUR_ID-if00
+
+[static_pwm_clock fly_alps_clk]
+pin: fly_alps:PA3
+frequency: 8000000
+
+[load_cell alps]
+sensor_type: ads131m02
+cs_pin: fly_alps:PA15
+spi_bus: spi1_PB4_PB5_PB3
+data_ready_pin: fly_alps:PB6
+pwm_clock: fly_alps_clk
+gain: 128
+sample_rate: 320
+
+# Validation after a successful restart:
+#   LOAD_CELL_DIAGNOSTIC LOAD_CELL=alps
+#   LOAD_CELL_TEST_TAP LOAD_CELL=alps
+# Do not perform calibration or alter [probe] until the raw signal and its
+# polarity are confirmed.
