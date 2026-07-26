@@ -69,6 +69,14 @@ class MainsailTileTests(unittest.TestCase):
                 output / "src/components/panels/AutopaPanel.vue"
             ).read_text(encoding="utf-8")
             self.assertIn("/autopa/api/status", panel)
+            self.assertIn("/local-vision/api/health", panel)
+            self.assertIn("localVisionInstalled", panel)
+            self.assertIn(
+                "health.service !== 'local-vision-console'",
+                panel)
+            self.assertIn(
+                "window.location.assign('/local-vision/')",
+                panel)
             self.assertIn("Dry-Run ein", panel)
             self.assertIn("this.status?.sensors.alps.state === 'ok'", panel)
             self.assertNotIn("SET_PRESSURE_ADVANCE", panel)
@@ -90,6 +98,10 @@ class MainsailTileTests(unittest.TestCase):
                 (output / "public/autopa-integration.json").read_text(
                     encoding="utf-8"))
             self.assertEqual("autopa", public_manifest["panel"])
+            self.assertEqual(2, public_manifest["format_version"])
+            self.assertEqual(
+                "/local-vision/api/health",
+                public_manifest["optional_health"]["local_vision"])
             self.assertEqual(
                 "off_or_dry_run_only",
                 public_manifest["control_policy"])

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 SUPPORTED_MAINSAIL_VERSIONS = {"2.18.2"}
-INTEGRATION_VERSION = 1
+INTEGRATION_VERSION = 2
 
 
 def _replace_once(path, old, new):
@@ -117,6 +117,9 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "output": str(output),
         "panel": "autopa",
         "api": "/autopa/api/status",
+        "optional_health": {
+            "local_vision": "/local-vision/api/health",
+        },
         "control_policy": "off_or_dry_run_only",
         "source_modified": False,
     }
@@ -129,6 +132,7 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
             "mainsail_version",
             "panel",
             "api",
+            "optional_health",
             "control_policy",
             "source_modified",
         )

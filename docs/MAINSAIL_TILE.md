@@ -19,6 +19,13 @@ Die Kachel zeigt:
 - ausgeführten Layer und G-Code-Feature;
 - Klipper-Toolhead-Geschwindigkeit und Volumenstrom;
 - ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird.
+- optional den Zustand eines getrennt installierten LocalVision-Dienstes.
+
+Die LocalVision-Zeile erscheint nur, wenn der echte JSON-Health-Endpunkt
+installiert ist. Grün bedeutet `ok`; rot bedeutet, dass die Route vorhanden,
+der Dienst aber nicht gesund oder nicht erreichbar ist. Ohne LocalVision wird
+keine zusätzliche Zeile angezeigt. Der Health-Check verändert weder AutoPA
+noch den Drucker.
 
 Sie kann AutoPA öffnen und ausschließlich zwischen `off` und `dry_run`
 umschalten. Sie kann **keinen bewaffneten Modus starten**, keine
@@ -65,8 +72,18 @@ Kachel daher entfernen. Für jede neue Mainsail-Version muss zuerst die
 Kompatibilität des Quellcodes geprüft, die unterstützte Version ausdrücklich
 freigegeben und ein neuer Build erzeugt werden.
 
-Die Installation auf dem Drucker bleibt blockiert, bis die bekannten
-USB-/EXT4-Speicherfehler offline repariert und das Dateisystem geprüft wurden.
+Auf RatOS sollte der fertige Build in einem eigenen, versionierten Webroot
+installiert werden, zum Beispiel unter
+`~/mainsail-autopa/releases/<version>`. Ein Symlink
+`~/mainsail-autopa/current` zeigt auf die aktive Version und Nginx verwendet
+diesen Symlink als `root`. Vor der Umschaltung werden `config.json` und die
+Nginx-Site gesichert; `nginx -t` muss erfolgreich sein. So bleibt
+`~/mainsail` vollständig unter Kontrolle des normalen Mainsail-Updaters und
+ein Rollback besteht nur aus dem Zurücksetzen des Symlinks bzw. Webroots.
+
+Ein Mainsail-Update aktualisiert den getrennten AutoPA-Webroot nicht
+automatisch. Nach jeder Mainsail-Aktualisierung muss deshalb ein kompatibler
+AutoPA-Build erzeugt, getestet und bewusst aktiviert werden.
 
 ## English
 
@@ -77,7 +94,10 @@ dashboard.
 
 The tile displays AutoPA freshness, mode, relative nozzle load, PA, executed
 layer and feature, Klipper toolhead speed, volumetric flow and PA evidence
-window state. It can open AutoPA and switch only between `off` and `dry_run`.
+window state. If LocalVision is installed, it also shows a separate green or
+red LocalVision health row; installations without the JSON health endpoint do
+not show that row. The health check cannot affect AutoPA or the printer. The
+tile can open AutoPA and switch only between `off` and `dry_run`.
 It cannot arm runtime command application or bypass AutoPA's safety gates.
 
 Mainsail has native sortable panels and macro groups but no stable external
@@ -90,5 +110,14 @@ The build intentionally does not modify the RatOS Theme repository or
 assets, so every new Mainsail release must be reviewed and explicitly added to
 the compatibility list before rebuilding.
 
-Printer installation remains blocked until the known USB/EXT4 storage faults
-have been repaired offline and the filesystem has passed verification.
+On RatOS, install the build in a separate versioned webroot such as
+`~/mainsail-autopa/releases/<version>`. Point
+`~/mainsail-autopa/current` at the active release and configure Nginx to use
+that symlink as its root. Back up `config.json` and the Nginx site first, and
+require a successful `nginx -t` before reloading Nginx. This keeps
+`~/mainsail` under the normal Mainsail updater and makes rollback a symlink or
+webroot change.
+
+A normal Mainsail update does not update the separate AutoPA webroot. Rebuild,
+test and deliberately activate a compatible AutoPA build after every Mainsail
+upgrade.
