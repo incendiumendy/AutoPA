@@ -77,6 +77,8 @@ class LiveStatusTest(unittest.TestCase):
             self.assertEqual(1000, payload["force"]["filtered"])
             self.assertGreater(payload["sample_rates_hz"]["force"], 0)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+            self.assertIn("clock", payload)
+            self.assertIn("extruder_motion", payload)
 
     def test_sample_update_does_not_write_live_file(self):
         with tempfile.TemporaryDirectory() as directory:

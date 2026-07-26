@@ -19,6 +19,7 @@ classifiers = [
 
 [project.scripts]
 autopa-analyze = "autopa.analyze:main"
+autopa-adaptive = "autopa.adaptive:main"
 autopa-align = "autopa.align:main"
 autopa-calibrate = "autopa.calibration:main"
 autopa-diagnose = "autopa.diagnose:main"

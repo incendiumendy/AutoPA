@@ -23,6 +23,9 @@ export async function GET() {
         nozzleDiameter: 0.6,
         filamentDiameter: 1.75,
         maxExtrudeCrossSection: 1.44,
+        firmwareRetractionAvailable: true,
+        retractLength: 0.5,
+        retractSpeed: 120,
       },
       capture: {
         state: "ok",
@@ -33,6 +36,9 @@ export async function GET() {
         alps: {
           state: "ok",
           value: force,
+          baseline: 10420,
+          delta: force - 10420,
+          normalized: (force - 10420) / 350,
           sampleRate: 2597,
         },
         lis2dw: {
@@ -48,6 +54,24 @@ export async function GET() {
       },
       safety: {
         printerAction: "none",
+      },
+      control: {
+        mode: "dry_run",
+        allowPrinterCommands: false,
+        armed: false,
+        armedSecondsRemaining: 0,
+        adaptivePAEnabled: true,
+        autoRetractEnabled: false,
+        suggestedPA: 0.032,
+        suggestedRetractMm: 0.55,
+        paConfidence: "learning",
+        retractConfidence: "learning",
+        paWindows: 3,
+        retractEvents: 2,
+        reason: "preview",
+        commandCount: 0,
+        lastCommand: null,
+        lastError: null,
       },
     },
     {

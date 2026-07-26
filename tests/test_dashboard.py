@@ -33,6 +33,10 @@ class DashboardStatusTests(unittest.TestCase):
                     },
                 },
             },
+            "firmware_retraction": {
+                "retract_length": 0.8,
+                "retract_speed": 35.0,
+            },
         }
 
     def test_fresh_capture_is_ok(self):
@@ -55,13 +59,27 @@ class DashboardStatusTests(unittest.TestCase):
             },
         }
         result = build_dashboard_status(
-            self.printer(), live, now_monotonic_ns=now)
+            self.printer(), live, now_monotonic_ns=now,
+            control_status={
+                "printerAction": "none",
+                "pressure": {
+                    "baseline": 1000,
+                    "delta": 234,
+                    "normalized": 0.75,
+                },
+            })
         self.assertEqual("ok", result["quality"]["state"])
         self.assertEqual(5.0, result["sensors"]["lis2dw"]["magnitude"])
         self.assertEqual(
             5.0, result["sensors"]["accelerometer"]["magnitude"])
         self.assertEqual(0.6, result["printer"]["nozzleDiameter"])
         self.assertEqual(1.75, result["printer"]["filamentDiameter"])
+        self.assertTrue(
+            result["printer"]["firmwareRetractionAvailable"])
+        self.assertEqual(0.8, result["printer"]["retractLength"])
+        self.assertEqual(1000.0, result["sensors"]["alps"]["baseline"])
+        self.assertEqual(234.0, result["sensors"]["alps"]["delta"])
+        self.assertEqual(0.75, result["sensors"]["alps"]["normalized"])
         self.assertEqual("none", result["safety"]["printerAction"])
 
     def test_optional_accelerometer_is_healthy_when_disabled(self):
@@ -106,7 +124,7 @@ class DashboardStatusTests(unittest.TestCase):
         self.assertEqual("error", result["quality"]["state"])
         self.assertFalse(result["printer"]["connected"])
 
-    def test_http_surface_is_read_only(self):
+    def test_http_status_surface_rejects_unrelated_posts(self):
         expected = build_dashboard_status(
             self.printer(), {}, now_monotonic_ns=1)
 
@@ -143,6 +161,76 @@ class DashboardStatusTests(unittest.TestCase):
                     urllib.request.urlopen(request)
                 self.assertEqual(405, raised.exception.code)
                 raised.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
+    def test_http_control_surface_routes_bounded_actions(self):
+        class Data:
+            def __init__(self):
+                self.config = None
+                self.disarmed = False
+
+            def control_status(self):
+                return {"mode": "dry_run", "armed": False}
+
+            def update_control(self, payload):
+                self.config = payload
+                return {"mode": payload["mode"], "armed": False}
+
+            def arm_control(self, payload):
+                raise PermissionError(
+                    "printer commands are server-side locked")
+
+            def disarm_control(self):
+                self.disarmed = True
+                return {"mode": "dry_run", "armed": False}
+
+        data = Data()
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(data, directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            base = "http://127.0.0.1:%d" % server.server_port
+            try:
+                with urllib.request.urlopen(
+                        base + "/api/control") as response:
+                    self.assertEqual(
+                        "dry_run", json.load(response)["mode"])
+                body = json.dumps({
+                    "mode": "dry_run",
+                    "adaptive_pa_enabled": True,
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    base + "/api/control/config", method="POST",
+                    data=body,
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(
+                        "dry_run", json.load(response)["mode"])
+                self.assertTrue(data.config["adaptive_pa_enabled"])
+                request = urllib.request.Request(
+                    base + "/api/control/arm", method="POST",
+                    data=json.dumps({
+                        "phrase": "AUTOPA VALIDIEREN",
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"})
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(request)
+                self.assertEqual(403, raised.exception.code)
+                raised.exception.close()
+                request = urllib.request.Request(
+                    base + "/api/control/disarm",
+                    method="POST", data=b"{}",
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request):
+                    pass
+                self.assertTrue(data.disarmed)
             finally:
                 server.shutdown()
                 server.server_close()

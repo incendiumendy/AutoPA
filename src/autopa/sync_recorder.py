@@ -157,6 +157,10 @@ class SynchronizedRecorder:
             "force": None,
             "acceleration": None,
             "printer": None,
+            "clock": None,
+            "extruder_motion": {
+                "segments": [],
+            },
         }
 
     def _update_live(self, section=None, payload=None, force_write=False):
@@ -372,6 +376,7 @@ class SynchronizedRecorder:
                                 errors, overflows))
                         if message.get("method") == "autopa/extruder_motion":
                             params = message.get("params", {})
+                            live_segments = []
                             for segment in params.get("data", ()):
                                 start_position = segment[4]
                                 direction = segment[5]
@@ -382,6 +387,23 @@ class SynchronizedRecorder:
                                     direction[1]))
                                 self.stats[
                                     "extruder_motion_segments"] += 1
+                                live_segments.append({
+                                    "print_time": segment[0],
+                                    "duration_s": segment[1],
+                                    "start_velocity_mm_s": segment[2],
+                                    "acceleration_mm_s2": segment[3],
+                                    "direction": direction[0],
+                                    "pressure_advance_active": direction[1],
+                                })
+                            if live_segments:
+                                current = (
+                                    self.live_status.get(
+                                        "extruder_motion", {})
+                                    .get("segments", []))
+                                self._update_live("extruder_motion", {
+                                    "segments":
+                                        (current + live_segments)[-96:],
+                                })
                         if message.get("method") == "autopa/printer_status":
                             record_printer_status(
                                 message.get("params", {}))
@@ -396,6 +418,12 @@ class SynchronizedRecorder:
                                 pending_clock.pop(request_id), response_ns,
                                 result.get("host_monotonic"),
                                 result.get("print_time")))
+                            self._update_live("clock", {
+                                "host_monotonic":
+                                    result.get("host_monotonic"),
+                                "print_time": result.get("print_time"),
+                                "response_host_monotonic_ns": response_ns,
+                            })
                         if request_id in pending_events:
                             pending_events.pop(request_id)
                             result = message.get("result", {})
