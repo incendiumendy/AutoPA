@@ -250,15 +250,17 @@ See [material and temperature characterization](docs/MATERIAL_TEMPERATURE.md).
 ## References and attribution
 
 AutoPA is an independent implementation with its own Git history. It is **not
-a fork** of PrusaPATuner, KAPAT, Klipper or RatOS. PrusaPATuner and KAPAT are
-linked below as research and comparison projects; their source files are not
-vendored in AutoPA.
+a fork** of PrusaPATuner, KAPAT, Klipper or RatOS. Its experimental direction
+is inspired by both
+[CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner) and
+[vzagranichnyy/KAPAT](https://github.com/vzagranichnyy/KAPAT); their source
+files are not vendored in AutoPA.
 
 The test shape and planned analysis compare step response, phase lag and
-integral area, inspired by the research in
-[CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner).
-PrusaPATuner targets Buddy firmware and is not copied into this project;
-Klipper uses different commands, timing and acquisition paths.
+integral area, inspired by the load-cell-based PA research in PrusaPATuner and
+the Klipper/Mellow-ALPS experiment in KAPAT. PrusaPATuner targets Buddy
+firmware, while KAPAT demonstrates a Klipper-specific path. AutoPA uses its own
+commands, timing, acquisition and analysis implementation.
 
 The files below `backport/klipper/` include GPLv3-licensed Klipper-derived
 backport material with the upstream copyright headers retained. See

@@ -3,16 +3,18 @@
 AutoPA is an independent implementation and is not a fork of any project
 listed below.
 
-## Research references
+## Research inspirations
 
-The following projects informed the problem statement, experimental design or
-comparison of pressure-advance analysis methods. Their source files are not
-vendored in AutoPA:
+The following projects inspired AutoPA's problem statement, experimental
+direction and comparison of pressure-advance analysis methods. Their source
+files are not vendored in AutoPA:
 
 - [CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner)
-  (AGPL-3.0): Prusa Buddy firmware implementation and analysis research.
+  (AGPL-3.0): inspiration for load-cell-based PA calibration and analysis
+  research on Prusa Buddy firmware.
 - [vzagranichnyy/KAPAT](https://github.com/vzagranichnyy/KAPAT)
-  (AGPL-3.0): independent Klipper experiment using a Mellow ALPS load cell.
+  (AGPL-3.0): inspiration and comparison point for a Klipper experiment using
+  a Mellow ALPS load cell.
 
 ## Klipper-derived backport material
 
