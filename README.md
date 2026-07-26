@@ -249,11 +249,20 @@ See [material and temperature characterization](docs/MATERIAL_TEMPERATURE.md).
 
 ## References and attribution
 
+AutoPA is an independent implementation with its own Git history. It is **not
+a fork** of PrusaPATuner, KAPAT, Klipper or RatOS. PrusaPATuner and KAPAT are
+linked below as research and comparison projects; their source files are not
+vendored in AutoPA.
+
 The test shape and planned analysis compare step response, phase lag and
 integral area, inspired by the research in
 [CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner).
 PrusaPATuner targets Buddy firmware and is not copied into this project;
 Klipper uses different commands, timing and acquisition paths.
+
+The files below `backport/klipper/` include GPLv3-licensed Klipper-derived
+backport material with the upstream copyright headers retained. See
+[Third-party notices](THIRD_PARTY_NOTICES.md) for the exact scope and links.
 
 - [Mellow FLY-ALPS web tool](https://mellow.klipper.cn/en/docs/ToolsDoc/fly-alps-tool/)
 - [Klipper Pressure Advance](https://www.klipper3d.org/Pressure_Advance.html)
