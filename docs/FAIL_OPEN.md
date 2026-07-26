@@ -28,6 +28,34 @@ into ordinary sliced print files.
 - The existing digital ALPS probe remains independent of the USB measurement
   stream.
 
+## Experimental bounded runtime control
+
+The optional Adaptive PA and Auto-Retract controller does not change this
+failure policy:
+
+- it starts in `off` or command-free `dry_run`;
+- server-side printer commands are disabled by default;
+- `apply` requires both the server unlock and the exact, transient dashboard
+  confirmation phrase;
+- stale/missing force data, insufficient sample rate, unstable temperature,
+  acceleration errors/overflows or excessive movement suppress an update;
+- changes are step-limited, total-delta-limited and rate-limited;
+- only `SET_PRESSURE_ADVANCE` and, when available,
+  `SET_RETRACTION RETRACT_LENGTH=...` are permitted;
+- it never sends `PAUSE`, `CANCEL_PRINT`, `M112`, a heater/motion command or
+  `SAVE_CONFIG`;
+- any controller exception stops further adaptation without interrupting the
+  print;
+- runtime values changed by the controller are restored to their captured
+  starting values on manual disarm, arming expiry or normal print completion.
+
+Auto-Retract is ignored unless Klipper exposes `[firmware_retraction]`.
+Furthermore, `SET_RETRACTION` only affects sliced files that use `G10`/`G11`;
+raw `G1 E...` retract moves embedded by a slicer remain unchanged.
+
+See [adaptive PA and Auto-Retract](ADAPTIVE_CONTROL.md) for the validation
+workflow and exact bounds.
+
 ## Dataset gates
 
 `autopa.quality` rejects analysis when any of these are found:

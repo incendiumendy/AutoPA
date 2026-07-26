@@ -694,6 +694,245 @@ select {
   opacity: 0.35;
 }
 
+.pressure-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.pressure-gauge-card,
+.adaptive-card,
+.context-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(23, 27, 34, 0.96), rgba(15, 18, 23, 0.98));
+  padding: 22px;
+}
+
+.context-card {
+  grid-column: 1 / -1;
+}
+
+.context-values {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.context-values div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 11px;
+}
+
+.context-values span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.context-values strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-window {
+  margin: 10px 0 0;
+  border-left: 2px solid var(--amber);
+  border-radius: 5px;
+  background: rgba(255, 189, 105, 0.06);
+  padding: 8px 10px;
+  color: var(--amber);
+  font-size: 10px;
+}
+
+.context-window.eligible {
+  border-left-color: var(--green);
+  background: rgba(88, 219, 194, 0.06);
+  color: var(--green);
+}
+
+.pressure-main-value {
+  color: var(--purple);
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pressure-main-value span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.pressure-scale {
+  position: relative;
+  height: 16px;
+  margin: 34px 4px 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #58dbc2 0%, #252b34 50%, #b98cff 100%);
+}
+
+.pressure-zero {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  left: 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.pressure-marker {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border: 3px solid #101318;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 18px rgba(185, 140, 255, 0.75);
+  transform: translate(-50%, -50%);
+  transition: left 180ms ease;
+}
+
+.pressure-scale-labels,
+.pressure-values,
+.control-evidence,
+.control-actions,
+.arming-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pressure-scale-labels {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.pressure-values {
+  margin-top: 26px;
+}
+
+.pressure-values div {
+  display: grid;
+  gap: 5px;
+}
+
+.pressure-values span,
+.control-evidence span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.pressure-values strong,
+.control-evidence strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.control-mode {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.control-mode.mode-dry_run {
+  border-color: rgba(255, 189, 105, 0.3);
+  color: var(--amber);
+}
+
+.control-mode.mode-apply {
+  border-color: rgba(255, 112, 112, 0.36);
+  color: var(--red);
+}
+
+.control-toggles {
+  display: grid;
+  gap: 8px;
+}
+
+.control-toggles label {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 11px;
+  cursor: pointer;
+}
+
+.control-toggles input {
+  width: 16px;
+  height: 16px;
+}
+
+.control-toggles span {
+  display: grid;
+  gap: 3px;
+}
+
+.control-toggles strong {
+  font-size: 12px;
+}
+
+.control-toggles small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.control-evidence {
+  margin: 12px 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 9px;
+}
+
+.control-actions,
+.arming-row {
+  margin-top: 8px;
+}
+
+.control-actions > *,
+.arming-row > * {
+  flex: 1;
+}
+
+.danger-button {
+  border: 1px solid rgba(255, 112, 112, 0.36);
+  border-radius: 10px;
+  background: rgba(255, 112, 112, 0.1);
+  color: var(--red);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.control-note,
+.control-message,
+.control-error {
+  margin: 11px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.control-message {
+  color: var(--green);
+}
+
+.control-error {
+  color: var(--red);
+}
+
 footer {
   justify-content: space-between;
   padding: 24px 2px 0;
@@ -709,6 +948,14 @@ footer {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pressure-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .context-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .profile-card {
@@ -759,6 +1006,10 @@ footer {
   .overview-metrics,
   .chart-grid,
   .health-rows {
+    grid-template-columns: 1fr;
+  }
+
+  .context-values {
     grid-template-columns: 1fr;
   }
 

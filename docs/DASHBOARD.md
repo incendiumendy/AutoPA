@@ -15,6 +15,9 @@ published as a public control surface.
   MPU9250 while an AutoPA recording is active;
 - actual force and acceleration sample rates;
 - synchronized-capture state and latest dataset;
+- learned no-flow baseline, relative nozzle load in ALPS counts and normalized
+  pressure;
+- dry-run PA and firmware-retraction recommendations with evidence counters;
 - a single overall `OK`, `waiting`, `warning` or `error` state.
 
 An idle sensor is shown as `waiting`, not as a hardware failure. An explicitly
@@ -55,6 +58,17 @@ Each chart footer has its own status point:
 - hotend temperature is live whenever Moonraker is connected.
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
+
+## Native movable Mainsail tile
+
+An optional pinned-source Mainsail integration provides a real dashboard panel
+that can be moved, hidden and collapsed through Mainsail's normal dashboard
+settings. It shows the compact AutoPA state, G-code context, executed speed and
+volumetric flow and permits only `off`/`dry_run` switching.
+
+It does not modify RatOS Theme or `navi.json`, and it cannot arm printer
+commands. See the bilingual
+[native Mainsail tile guide](MAINSAIL_TILE.md).
 
 ## Data path
 
@@ -126,12 +140,22 @@ The installer backs up the active navigation and Nginx site, validates the
 resulting JSON and runs `nginx -t` before reloading Nginx. It does not modify
 Klipper configuration or restart Klipper.
 
-The generated system service uses filesystem hardening, runs without extra
-privileges and exposes only `GET /api/status` and `GET /api/health`. Every POST
-request is rejected with HTTP 405 and `printer_action: none`.
+The generated system service uses filesystem hardening and runs without extra
+privileges. Status endpoints remain read-only. The narrowly scoped control
+endpoints can only configure dry-run, request transient arming or disarm the
+controller. The shipped service has
+`AUTOPA_ALLOW_PRINTER_COMMANDS=0`, so arming is rejected server-side even if a
+browser calls the endpoint directly.
+
+For the first printer validation, keep that value at `0`. The pressure gauge
+and proposed PA/retraction values are still visible during an active capture.
+Only after the dry-run evidence has been reviewed may an operator deliberately
+set it to `1`, restart only the AutoPA dashboard service and enter the exact
+phrase `AUTOPA VALIDIEREN`. See
+[adaptive PA and Auto-Retract](ADAPTIVE_CONTROL.md).
 
 ## Security boundary
 
 Port 7126 is intended only for the trusted printer LAN. Do not expose it
 directly to the internet. Authentication and reverse-proxy integration are not
-part of the initial read-only version.
+part of this experimental validation surface.

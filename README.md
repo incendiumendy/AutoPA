@@ -11,15 +11,18 @@ sensor-assisted Pressure Advance sweep.
 
 An optional local dashboard displays live force, movement, temperature,
 Pressure Advance, measurement health and editable PLA/ABS/PETG/ASA/TPU test
-profiles. It remains read-only toward the printer. See
+profiles. Its experimental controller defaults to a command-free dry-run and
+requires two independent unlocks before it can make bounded runtime changes.
+See
 [local live dashboard](docs/DASHBOARD.md).
 
 The project targets both ordinary Klipper/Moonraker installations and RatOS.
 It does not replace RatOS configuration files.
 
 > Status: experimental development project. Acquisition and clock alignment
-> are validated on one RatOS printer. Automatic PA recommendations are not yet
-> validated and must not be applied unattended.
+> are validated on one RatOS printer. Adaptive PA and Auto-Retract are not yet
+> validated on a print and must first be evaluated in dry-run. Never apply
+> them unattended.
 
 ## Validated hardware
 
@@ -99,7 +102,9 @@ src/autopa/
   filament.py        advisory lost-extrusion-pressure detection
   material.py        filament consistency and temperature comparison
   temperature_plan.py safe per-temperature sweep file generator
-  dashboard.py       read-only local status and static dashboard server
+  dashboard.py       local status and opt-in bounded control server
+  adaptive.py        dry-run PA/retraction estimator and guarded controller
+  gcode_context.py   safe slicer-context parser and copy instrumenter
   quality.py         acquisition and idle-baseline diagnostics
   sweep.py           bounded Klipper PA sweep generator
 klipper/extras/
@@ -109,6 +114,7 @@ config/
 docs/                installation, protocol, compatibility and safety notes
 tests/               dependency-free unit tests
 dashboard/           responsive browser interface and static production build
+integrations/mainsail native movable AutoPA panel for a pinned Mainsail build
 ```
 
 ## Install the safe factory-firmware mode
@@ -162,6 +168,27 @@ The motion channel is optional. AutoPA supports Klipper's LIS2DW, LIS3DH,
 ADXL345 and MPU9250 data endpoints; use `--accelerometer-type none` for a
 force-only capture. See
 [optional accelerometers](docs/ACCELEROMETERS.md).
+
+## Add exact G-code context
+
+AutoPA can create a separate instrumented copy of an ordinary sliced file:
+
+```sh
+PYTHONPATH=src python3 -m autopa.gcode_context \
+  model.gcode model.autopa.gcode
+```
+
+The source is never modified. Context markers identify the executed layer,
+Z height, slicer feature and object on Klipper's real `print_time` axis rather
+than relying on Moonraker's look-ahead-affected file position. Missing or
+unsupported context never interrupts a print; it suppresses context-assisted
+PA evaluation instead. See the bilingual
+[G-Code Context Engine guide](docs/GCODE_CONTEXT.md).
+
+For Mainsail `2.18.2`, AutoPA also provides an optional native panel that can
+be moved, hidden and collapsed with Mainsail's normal dashboard settings. It
+shows compact live/context data and can switch only command-free dry-run on or
+off. See [native Mainsail tile](docs/MAINSAIL_TILE.md).
 
 Repeated quality-approved runs can be pooled without admitting rejected data:
 
@@ -227,10 +254,17 @@ move would exceed the axis limit, or the hotend is too cold.
   cancel or emergency-stop a print.
 - Analysis is fail-closed: missing, delayed, clipped or implausible data
   suppresses the PA recommendation.
-- Recording never changes PA automatically.
+- Context-assisted PA is also fail-closed: only an eligible feature marker
+  whose Klipper `print_time` has been reached may open a PA evidence window.
+- Recording and dry-run never change PA or retraction.
 - Analysis will first return a recommendation with confidence and per-cycle
   evidence.
-- Applying a recommendation remains a separate user-confirmed action.
+- Experimental live application is separately enabled, transiently armed,
+  rate-limited, total-delta-limited and restored to its starting runtime values
+  when disarmed or after the print.
+- Auto-Retract applies only to Klipper `[firmware_retraction]` and sliced
+  `G10`/`G11`; it cannot rewrite raw extruder retraction moves in an ordinary
+  sliced G-code file.
 - Normal probing stays on the factory digital ALPS signal.
 - `TEST_RESONANCES` is not run during printing; AutoPA only passively records
   LIS2DW samples.
@@ -239,6 +273,8 @@ move would exceed the axis limit, or the hotend is too cold.
 
 The complete policy and current quality thresholds are documented in
 [fail-open printing](docs/FAIL_OPEN.md).
+The validation procedure and hard control bounds are documented in
+[adaptive PA and Auto-Retract](docs/ADAPTIVE_CONTROL.md).
 
 AutoPA can also compare commanded Klipper extrusion with measured nozzle
 pressure. A sustained pressure collapse can indicate broken, empty or stripped

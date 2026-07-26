@@ -21,6 +21,7 @@ Klipper's `print_time` clock before analysis.
 | --- | --- | --- |
 | Force | Mellow factory USB serial protocol | host monotonic time, raw, filtered |
 | Motion | selected Klipper accelerometer endpoint, optional | time, X, Y, Z acceleration |
+| Planned motion | Klipper toolhead and extruder trap queues | executed path speed and filament speed |
 | Print context | Klipper status / G-code markers | position, velocity, extrusion, PA candidate |
 | Material state | Klipper object subscription | nozzle temperature, target, PA, Smooth Time, print state |
 
@@ -49,6 +50,8 @@ The preferred recorder is a host process plus the small read-only
 - `acceleration.csv`: original optional accelerometer samples and counters;
 - `events.csv`: synchronized markers such as line start, corner, extrusion
   transition, PA change and capture stop;
+- `toolhead_motion.csv` and `extruder_motion.csv`: Klipper's scheduled motion
+  segments used to reconstruct the values at an exact `print_time`;
 - `combined.parquet` or `combined.csv`: resampled analysis view generated after
   capture, never a replacement for raw data.
 

@@ -19,11 +19,13 @@ classifiers = [
 
 [project.scripts]
 autopa-analyze = "autopa.analyze:main"
+autopa-adaptive = "autopa.adaptive:main"
 autopa-align = "autopa.align:main"
 autopa-calibrate = "autopa.calibration:main"
 autopa-diagnose = "autopa.diagnose:main"
 autopa-dashboard = "autopa.dashboard:main"
 autopa-filament = "autopa.filament:main"
+autopa-gcode-context = "autopa.gcode_context:main"
 autopa-material = "autopa.material:main"
 autopa-temperature-plan = "autopa.temperature_plan:main"
 autopa-quality = "autopa.quality:main"

@@ -142,7 +142,9 @@ class SynchronizedRecorder:
                       "acceleration_errors": 0,
                       "acceleration_overflows": 0,
                       "extruder_motion_segments": 0,
-                      "printer_status_updates": 0}
+                      "toolhead_motion_segments": 0,
+                      "printer_status_updates": 0,
+                      "gcode_context_markers": 0}
         self.alps_version = None
         self.live_status = {
             "format_version": 1,
@@ -157,6 +159,16 @@ class SynchronizedRecorder:
             "force": None,
             "acceleration": None,
             "printer": None,
+            "clock": None,
+            "extruder_motion": {
+                "segments": [],
+            },
+            "toolhead_motion": {
+                "segments": [],
+            },
+            "gcode_context": {
+                "transitions": [],
+            },
         }
 
     def _update_live(self, section=None, payload=None, force_write=False):
@@ -197,6 +209,32 @@ class SynchronizedRecorder:
         if latest:
             self.stats["force_samples"] = latest.pop("count")
             self._update_live("force", latest)
+
+    def _record_context_events(self, events):
+        """Publish only scheduled context transitions; malformed data is inert."""
+        transitions = []
+        for event in events or ():
+            if event.get("event") != "context":
+                continue
+            print_time = event.get("print_time")
+            if (isinstance(print_time, bool)
+                    or not isinstance(print_time, (int, float))):
+                continue
+            transitions.append({
+                "sequence": event.get("sequence"),
+                "print_time": float(print_time),
+                "event": "context",
+                "value": event.get("value"),
+            })
+        if not transitions:
+            return
+        current = (
+            self.live_status.get("gcode_context", {})
+            .get("transitions", []))
+        self.stats["gcode_context_markers"] += len(transitions)
+        self._update_live("gcode_context", {
+            "transitions": (current + transitions)[-512:],
+        })
 
     def _publish_live(self, duration, live_queue):
         started = time.monotonic()
@@ -243,6 +281,8 @@ class SynchronizedRecorder:
             events_path = os.path.join(self.output_dir, "events.csv")
             extruder_path = os.path.join(
                 self.output_dir, "extruder_motion.csv")
+            toolhead_path = os.path.join(
+                self.output_dir, "toolhead_motion.csv")
             status_path = os.path.join(
                 self.output_dir, "printer_status.csv")
             with open(accel_path, "w", newline="",
@@ -255,6 +295,8 @@ class SynchronizedRecorder:
                     buffering=1024 * 1024) as events_handle, open(
                     extruder_path, "w", newline="",
                     buffering=1024 * 1024) as extruder_handle, open(
+                    toolhead_path, "w", newline="",
+                    buffering=1024 * 1024) as toolhead_handle, open(
                     status_path, "w", newline="",
                     buffering=1024 * 1024) as status_handle:
                 accel_writer = csv.writer(accel_handle)
@@ -262,6 +304,7 @@ class SynchronizedRecorder:
                 clock_writer = csv.writer(clocks_handle)
                 events_writer = csv.writer(events_handle)
                 extruder_writer = csv.writer(extruder_handle)
+                toolhead_writer = csv.writer(toolhead_handle)
                 status_writer = csv.writer(status_handle)
                 accel_writer.writerow((
                     "print_time", "x_mm_s2", "y_mm_s2", "z_mm_s2"))
@@ -278,6 +321,11 @@ class SynchronizedRecorder:
                     "start_velocity_mm_s", "acceleration_mm_s2",
                     "start_position_mm", "direction",
                     "pressure_advance_active"))
+                toolhead_writer.writerow((
+                    "print_time", "duration_s",
+                    "start_velocity_mm_s", "acceleration_mm_s2",
+                    "start_x_mm", "start_y_mm", "start_z_mm",
+                    "direction_x", "direction_y", "direction_z"))
                 status_writer.writerow((
                     "host_monotonic_ns", "eventtime",
                     "extruder_temperature_c", "extruder_target_c",
@@ -293,6 +341,11 @@ class SynchronizedRecorder:
                     "name": "extruder",
                     "response_template": {
                         "method": "autopa/extruder_motion"},
+                })
+                connection.send("motion_report/dump_trapq", {
+                    "name": "toolhead",
+                    "response_template": {
+                        "method": "autopa/toolhead_motion"},
                 })
                 status_subscription_id = connection.send(
                     "objects/subscribe", {
@@ -372,6 +425,7 @@ class SynchronizedRecorder:
                                 errors, overflows))
                         if message.get("method") == "autopa/extruder_motion":
                             params = message.get("params", {})
+                            live_segments = []
                             for segment in params.get("data", ()):
                                 start_position = segment[4]
                                 direction = segment[5]
@@ -382,6 +436,56 @@ class SynchronizedRecorder:
                                     direction[1]))
                                 self.stats[
                                     "extruder_motion_segments"] += 1
+                                live_segments.append({
+                                    "print_time": segment[0],
+                                    "duration_s": segment[1],
+                                    "start_velocity_mm_s": segment[2],
+                                    "acceleration_mm_s2": segment[3],
+                                    "direction": direction[0],
+                                    "pressure_advance_active": direction[1],
+                                })
+                            if live_segments:
+                                current = (
+                                    self.live_status.get(
+                                        "extruder_motion", {})
+                                    .get("segments", []))
+                                self._update_live("extruder_motion", {
+                                    "segments":
+                                        (current + live_segments)[-96:],
+                                })
+                        if message.get("method") == "autopa/toolhead_motion":
+                            params = message.get("params", {})
+                            live_segments = []
+                            for segment in params.get("data", ()):
+                                start_position = segment[4]
+                                direction = segment[5]
+                                toolhead_writer.writerow((
+                                    segment[0], segment[1],
+                                    segment[2], segment[3],
+                                    start_position[0], start_position[1],
+                                    start_position[2],
+                                    direction[0], direction[1],
+                                    direction[2]))
+                                self.stats[
+                                    "toolhead_motion_segments"] += 1
+                                live_segments.append({
+                                    "print_time": segment[0],
+                                    "duration_s": segment[1],
+                                    "start_velocity_mm_s": segment[2],
+                                    "acceleration_mm_s2": segment[3],
+                                    "direction_x": direction[0],
+                                    "direction_y": direction[1],
+                                    "direction_z": direction[2],
+                                })
+                            if live_segments:
+                                current = (
+                                    self.live_status.get(
+                                        "toolhead_motion", {})
+                                    .get("segments", []))
+                                self._update_live("toolhead_motion", {
+                                    "segments":
+                                        (current + live_segments)[-96:],
+                                })
                         if message.get("method") == "autopa/printer_status":
                             record_printer_status(
                                 message.get("params", {}))
@@ -396,16 +500,24 @@ class SynchronizedRecorder:
                                 pending_clock.pop(request_id), response_ns,
                                 result.get("host_monotonic"),
                                 result.get("print_time")))
+                            self._update_live("clock", {
+                                "host_monotonic":
+                                    result.get("host_monotonic"),
+                                "print_time": result.get("print_time"),
+                                "response_host_monotonic_ns": response_ns,
+                            })
                         if request_id in pending_events:
                             pending_events.pop(request_id)
                             result = message.get("result", {})
-                            for event in result.get("events", ()):
+                            events = result.get("events", ())
+                            for event in events:
                                 events_writer.writerow((
                                     event.get("sequence"),
                                     event.get("print_time"),
                                     event.get("host_monotonic"),
                                     event.get("event"),
                                     event.get("value")))
+                            self._record_context_events(events)
                             event_sequence = result.get(
                                 "last_sequence", event_sequence)
                         if "error" in message:
@@ -501,6 +613,7 @@ class SynchronizedRecorder:
             "accelerometer_type": self.accelerometer_type,
             "accelerometer_enabled": self.accelerometer is not None,
             "extruder_motion_source": "motion_report/dump_trapq:extruder",
+            "toolhead_motion_source": "motion_report/dump_trapq:toolhead",
             "stats": self.stats,
             "errors": errors,
             "policy": {

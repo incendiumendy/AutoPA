@@ -1,5 +1,5 @@
 [Unit]
-Description=AutoPA read-only live dashboard
+Description=AutoPA live dashboard and guarded validation controller
 After=network-online.target moonraker.service
 Wants=network-online.target
 
@@ -8,9 +8,12 @@ Type=simple
 User=AUTOPA_USER
 WorkingDirectory=AUTOPA_PROJECT_DIR
 Environment=PYTHONPATH=AUTOPA_PROJECT_DIR/src
+Environment=AUTOPA_CONTROL_STATE=/var/lib/autopa/control.json
+Environment=AUTOPA_ALLOW_PRINTER_COMMANDS=0
 ExecStart=/usr/bin/python3 -m autopa.dashboard --host 0.0.0.0 --port 7126
 Restart=on-failure
 RestartSec=3
+StateDirectory=autopa
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

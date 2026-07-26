@@ -18,6 +18,9 @@ type DashboardStatus = {
     nozzleDiameter: number | null;
     filamentDiameter: number | null;
     maxExtrudeCrossSection: number | null;
+    firmwareRetractionAvailable: boolean;
+    retractLength: number | null;
+    retractSpeed: number | null;
   };
   capture: {
     state: SignalState;
@@ -28,6 +31,9 @@ type DashboardStatus = {
     alps: {
       state: SignalState;
       value: number | null;
+      baseline: number | null;
+      delta: number | null;
+      normalized: number | null;
       sampleRate: number | null;
     };
     accelerometer: {
@@ -44,7 +50,41 @@ type DashboardStatus = {
     message: string;
   };
   safety: {
-    printerAction: "none";
+    printerAction: string;
+  };
+  control: {
+    mode: "off" | "dry_run" | "apply";
+    allowPrinterCommands: boolean;
+    armed: boolean;
+    armedSecondsRemaining: number;
+    adaptivePAEnabled: boolean;
+    autoRetractEnabled: boolean;
+    suggestedPA: number | null;
+    suggestedRetractMm: number | null;
+    paConfidence: string;
+    retractConfidence: string;
+    paWindows: number;
+    retractEvents: number;
+    reason: string | null;
+    gcodeContext: {
+      active: boolean;
+      layer: number | null;
+      z_mm: number | null;
+      feature: string;
+      object: string | null;
+      source_line?: number | null;
+      pa_eligible: boolean;
+      eligibility_reason: string;
+      print_time?: number | null;
+    } | null;
+    paContextEligible: boolean;
+    extruderVelocityMmS: number | null;
+    toolheadVelocityMmS: number | null;
+    volumetricFlowMm3S: number | null;
+    contextPrintTime: number | null;
+    commandCount: number;
+    lastCommand: string | null;
+    lastError: string | null;
   };
 };
 
@@ -169,10 +209,20 @@ const EMPTY_STATUS: DashboardStatus = {
     nozzleDiameter: null,
     filamentDiameter: null,
     maxExtrudeCrossSection: null,
+    firmwareRetractionAvailable: false,
+    retractLength: null,
+    retractSpeed: null,
   },
   capture: { state: "waiting", dataset: null, ageSeconds: null },
   sensors: {
-    alps: { state: "waiting", value: null, sampleRate: null },
+    alps: {
+      state: "waiting",
+      value: null,
+      baseline: null,
+      delta: null,
+      normalized: null,
+      sampleRate: null,
+    },
     accelerometer: {
       enabled: true,
       type: "lis2dw",
@@ -187,6 +237,30 @@ const EMPTY_STATUS: DashboardStatus = {
     message: "Warte auf den ersten Status",
   },
   safety: { printerAction: "none" },
+  control: {
+    mode: "off",
+    allowPrinterCommands: false,
+    armed: false,
+    armedSecondsRemaining: 0,
+    adaptivePAEnabled: false,
+    autoRetractEnabled: false,
+    suggestedPA: null,
+    suggestedRetractMm: null,
+    paConfidence: "waiting",
+    retractConfidence: "waiting",
+    paWindows: 0,
+    retractEvents: 0,
+    reason: "waiting_for_live_data",
+    gcodeContext: null,
+    paContextEligible: false,
+    extruderVelocityMmS: null,
+    toolheadVelocityMmS: null,
+    volumetricFlowMm3S: null,
+    contextPrintTime: null,
+    commandCount: 0,
+    lastCommand: null,
+    lastError: null,
+  },
 };
 
 const STATUS_LABEL: Record<SignalState, string> = {
@@ -199,6 +273,27 @@ const STATUS_LABEL: Record<SignalState, string> = {
 function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
 }
+
+const FEATURE_LABELS: Record<string, string> = {
+  external_perimeter: "Außenwand",
+  internal_perimeter: "Innenwand",
+  infill: "Infill",
+  solid_infill: "Massives Infill",
+  gap_fill: "Lückenfüllung",
+  bridge: "Brücke / Überhang",
+  support: "Support",
+  skirt_brim: "Skirt / Brim",
+  ironing: "Glätten",
+  unknown: "Unbekannt",
+};
+
+const CONTEXT_REASON_LABELS: Record<string, string> = {
+  eligible_extrusion_feature: "PA-Messfenster aktiv",
+  feature_not_validated_for_pa: "PA-Messfenster ignoriert",
+  feature_unknown: "Feature unbekannt – PA bleibt unverändert",
+  context_marker_pending_or_missing: "Warte auf Context-Marker",
+  print_time_missing: "Klipper-Zeitbasis fehlt",
+};
 
 function LineChart({
   title,
@@ -329,6 +424,53 @@ function StateDot({ state }: { state: SignalState }) {
   );
 }
 
+function PressureGauge({
+  value,
+  baseline,
+  delta,
+  normalized,
+}: {
+  value: number | null;
+  baseline: number | null;
+  delta: number | null;
+  normalized: number | null;
+}) {
+  const percentage =
+    normalized === null ? 50 : Math.max(0, Math.min(100, 50 + normalized * 35));
+  return (
+    <article className="pressure-gauge-card">
+      <div className="section-heading compact">
+        <div>
+          <p className="eyebrow">FLY-ALPS · LIVE</p>
+          <h2>Druck auf der Düse</h2>
+        </div>
+        <strong className="pressure-main-value">
+          {formatNumber(delta, 0)} <span>counts relativ</span>
+        </strong>
+      </div>
+      <div className="pressure-scale" aria-label="Relativer Düsendruck">
+        <span className="pressure-zero" />
+        <span className="pressure-marker" style={{ left: `${percentage}%` }} />
+      </div>
+      <div className="pressure-scale-labels">
+        <span>Unterdruck</span>
+        <span>Nullpunkt</span>
+        <span>Düsendruck</span>
+      </div>
+      <div className="pressure-values">
+        <div><span>Rohwert</span><strong>{formatNumber(value, 0)}</strong></div>
+        <div><span>Nullpunkt</span><strong>{formatNumber(baseline, 0)}</strong></div>
+        <div>
+          <span>Normiert</span>
+          <strong>
+            {normalized === null ? "—" : `${(normalized * 100).toFixed(0)} %`}
+          </strong>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function Home() {
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [history, setHistory] = useState<PlotPoint[]>([]);
@@ -336,6 +478,9 @@ export default function Home() {
     useState<MaterialProfile[]>(DEFAULT_PROFILES);
   const [selectedId, setSelectedId] = useState("pla");
   const [saved, setSaved] = useState(false);
+  const [armPhrase, setArmPhrase] = useState("");
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlMessage, setControlMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -474,6 +619,39 @@ export default function Home() {
     mainsailUrl.search = "";
     mainsailUrl.hash = "";
     window.location.assign(mainsailUrl.toString());
+  };
+
+  const postControl = async (
+    path: "config" | "arm" | "disarm",
+    payload: Record<string, unknown> = {},
+  ) => {
+    setControlBusy(true);
+    setControlMessage("");
+    try {
+      const response = await fetch(`api/control/${path}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Änderung abgelehnt");
+      setStatus((current) => ({ ...current, control: result }));
+      setControlMessage(
+        path === "arm"
+          ? "Validierungsmodus ist für maximal 30 Minuten bewaffnet."
+          : path === "disarm"
+            ? "Anwenden beendet; Dry-Run bleibt verfügbar."
+            : "Reglereinstellungen gespeichert.",
+      );
+      if (path === "arm") setArmPhrase("");
+    } catch (error) {
+      setControlMessage(
+        error instanceof Error ? error.message : "Änderung fehlgeschlagen",
+      );
+    } finally {
+      setControlBusy(false);
+    }
   };
 
   const temperatures = useMemo(() => {
@@ -627,13 +805,258 @@ export default function Home() {
             />
           </div>
 
+          <div className="pressure-control-grid">
+            <article className="context-card">
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">G-Code Context Engine</p>
+                  <h2>Aktuell ausgeführter Druckkontext</h2>
+                </div>
+                <span
+                  className={`live-indicator ${
+                    status.control.gcodeContext?.active ? "is-live" : ""
+                  }`}
+                  aria-label={
+                    status.control.gcodeContext?.active
+                      ? "G-Code-Kontext live"
+                      : "Kein G-Code-Kontext"
+                  }
+                >
+                  <span />
+                  {status.control.gcodeContext?.active ? "Live" : "Wartet"}
+                </span>
+              </div>
+              <div className="context-values">
+                <div>
+                  <span>Layer</span>
+                  <strong>
+                    {status.control.gcodeContext?.layer ?? "—"}
+                    {status.control.gcodeContext?.z_mm != null
+                      ? ` · Z ${formatNumber(
+                          status.control.gcodeContext.z_mm,
+                          2,
+                        )} mm`
+                      : ""}
+                    {status.control.gcodeContext?.source_line != null
+                      ? ` · Zeile ${status.control.gcodeContext.source_line}`
+                      : ""}
+                  </strong>
+                </div>
+                <div>
+                  <span>Feature</span>
+                  <strong>
+                    {FEATURE_LABELS[
+                      status.control.gcodeContext?.feature ?? "unknown"
+                    ] ?? status.control.gcodeContext?.feature ?? "Unbekannt"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Objekt</span>
+                  <strong>
+                    {status.control.gcodeContext?.object ?? "Nicht angegeben"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Druckgeschwindigkeit</span>
+                  <strong>
+                    {formatNumber(status.control.toolheadVelocityMmS, 1)} mm/s
+                  </strong>
+                </div>
+                <div>
+                  <span>Extruderbewegung</span>
+                  <strong>
+                    {formatNumber(status.control.extruderVelocityMmS, 2)} mm/s
+                  </strong>
+                </div>
+                <div>
+                  <span>Volumenstrom</span>
+                  <strong>
+                    {formatNumber(status.control.volumetricFlowMm3S, 2)} mm³/s
+                  </strong>
+                </div>
+              </div>
+              <p
+                className={`context-window ${
+                  status.control.paContextEligible ? "eligible" : ""
+                }`}
+              >
+                {CONTEXT_REASON_LABELS[
+                  status.control.gcodeContext?.eligibility_reason ?? ""
+                ] ?? "Kontext fehlt – PA bleibt unverändert"}
+              </p>
+            </article>
+            <PressureGauge
+              value={status.sensors.alps.value}
+              baseline={status.sensors.alps.baseline}
+              delta={status.sensors.alps.delta}
+              normalized={status.sensors.alps.normalized}
+            />
+            <article className="adaptive-card">
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">Experimenteller Validierungsmodus</p>
+                  <h2>Adaptive PA & Auto-Retract</h2>
+                </div>
+                <span className={`control-mode mode-${status.control.mode}`}>
+                  {status.control.mode === "apply"
+                    ? "BEWAFFNET"
+                    : status.control.mode === "dry_run"
+                      ? "DRY-RUN"
+                      : "AUS"}
+                </span>
+              </div>
+
+              <div className="control-toggles">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={status.control.adaptivePAEnabled}
+                    disabled={controlBusy}
+                    onChange={(event) =>
+                      postControl("config", {
+                        mode:
+                          status.control.mode === "off"
+                            ? "dry_run"
+                            : status.control.mode,
+                        adaptive_pa_enabled: event.target.checked,
+                        auto_retract_enabled:
+                          status.control.autoRetractEnabled,
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>Adaptive PA</strong>
+                    <small>
+                      {formatNumber(status.printer.pressureAdvance, 3)} →{" "}
+                      {formatNumber(status.control.suggestedPA, 3)}
+                    </small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={status.control.autoRetractEnabled}
+                    disabled={
+                      controlBusy ||
+                      !status.printer.firmwareRetractionAvailable
+                    }
+                    onChange={(event) =>
+                      postControl("config", {
+                        mode:
+                          status.control.mode === "off"
+                            ? "dry_run"
+                            : status.control.mode,
+                        adaptive_pa_enabled:
+                          status.control.adaptivePAEnabled,
+                        auto_retract_enabled: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>Auto-Retract</strong>
+                    <small>
+                      {status.printer.firmwareRetractionAvailable
+                        ? `${formatNumber(status.printer.retractLength, 2)} → ${formatNumber(status.control.suggestedRetractMm, 2)} mm`
+                        : "Benötigt [firmware_retraction] und G10/G11"}
+                    </small>
+                  </span>
+                </label>
+              </div>
+
+              <div className="control-evidence">
+                <span>PA-Fenster <strong>{status.control.paWindows}</strong></span>
+                <span>
+                  Retract-Ereignisse{" "}
+                  <strong>{status.control.retractEvents}</strong>
+                </span>
+                <span>
+                  Änderungen <strong>{status.control.commandCount}</strong>
+                </span>
+              </div>
+
+              <div className="control-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={controlBusy}
+                  onClick={() =>
+                    postControl("config", {
+                      mode: "dry_run",
+                      adaptive_pa_enabled:
+                        status.control.adaptivePAEnabled,
+                      auto_retract_enabled:
+                        status.control.autoRetractEnabled,
+                    })
+                  }
+                >
+                  Dry-Run starten
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={controlBusy}
+                  onClick={() => postControl("config", { mode: "off" })}
+                >
+                  Ausschalten
+                </button>
+              </div>
+
+              <div className="arming-row">
+                <input
+                  type="text"
+                  value={armPhrase}
+                  onChange={(event) => setArmPhrase(event.target.value)}
+                  placeholder="AUTOPA VALIDIEREN"
+                  aria-label="Bestätigung für begrenztes Anwenden"
+                />
+                {status.control.armed ? (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={controlBusy}
+                    onClick={() => postControl("disarm")}
+                  >
+                    Anwenden beenden
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={
+                      controlBusy ||
+                      !status.control.allowPrinterCommands ||
+                      armPhrase !== "AUTOPA VALIDIEREN"
+                    }
+                    onClick={() => postControl("arm", { phrase: armPhrase })}
+                  >
+                    Begrenzt anwenden
+                  </button>
+                )}
+              </div>
+
+              <p className="control-note">
+                Keine Pause, kein Abbruch und kein SAVE_CONFIG. Änderungen sind
+                zeitlich begrenzt, schrittweise und nur während „printing“
+                erlaubt. Status: {status.control.reason ?? "—"}
+              </p>
+              {controlMessage && <p className="control-message">{controlMessage}</p>}
+              {status.control.lastError && (
+                <p className="control-error">{status.control.lastError}</p>
+              )}
+            </article>
+          </div>
+
           <div className="health-card">
             <div className="section-heading compact">
               <div>
                 <p className="eyebrow">Messkette</p>
                 <h2>Bereitschaft & Datenqualität</h2>
               </div>
-              <span className="safety-note">Keine automatische Druckaktion</span>
+              <span className="safety-note">
+                {status.control.mode === "apply"
+                  ? "Begrenzt und ausdrücklich bewaffnet"
+                  : "Keine automatische Druckaktion"}
+              </span>
             </div>
             <div className="health-rows">
               <div className="health-row">

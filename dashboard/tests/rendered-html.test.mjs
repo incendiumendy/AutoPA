@@ -20,7 +20,7 @@ test("renders the finished AutoPA dashboard", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
-test("keeps the local dashboard read-only by design", async () => {
+test("renders opt-in bounded control without direct printer commands", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
@@ -35,6 +35,15 @@ test("keeps the local dashboard read-only by design", async () => {
   assert.match(page, /Filamentart \/ Name/);
   assert.match(page, /Live-Daten aktiv/);
   assert.match(page, /SUNLU ABS Green/);
+  assert.match(page, /Adaptive PA & Auto-Retract/);
+  assert.match(page, /G-Code Context Engine/);
+  assert.match(page, /PA-Messfenster aktiv/);
+  assert.match(page, /Druckgeschwindigkeit/);
+  assert.match(page, /Volumenstrom/);
+  assert.match(page, /Dry-Run starten/);
+  assert.match(page, /AUTOPA VALIDIEREN/);
+  assert.match(page, /firmware_retraction/);
+  assert.match(page, /Druck auf der D(?:üse|Ã¼se|\\u00fcse)/);
   assert.doesNotMatch(page, /monitor-policy|Lokale KI|Spaghetti-Erkennung/);
   assert.match(page, /mainsailUrl\.port === "7126"/);
   assert.doesNotMatch(page, /M104|M109|SET_PRESSURE_ADVANCE|PAUSE|CANCEL_PRINT/);

@@ -1,4 +1,4 @@
-"""Read-only local dashboard server for Moonraker and AutoPA live data."""
+"""Local AutoPA dashboard with bounded, explicitly armed runtime control."""
 import argparse
 import json
 import math
@@ -11,9 +11,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .adaptive import AdaptiveController
+
 
 MOONRAKER_QUERY = (
-    "/printer/objects/query?webhooks&print_stats&extruder&configfile")
+    "/printer/objects/query?"
+    "webhooks&print_stats&extruder&configfile&firmware_retraction")
 
 
 def _number(value):
@@ -23,8 +26,9 @@ def _number(value):
 
 
 def build_dashboard_status(printer_status, live_status,
-                           now_monotonic_ns=None, error=None):
-    """Create the stable browser API without issuing printer commands."""
+                           now_monotonic_ns=None, error=None,
+                           control_status=None):
+    """Create the stable browser API and report opt-in controller state."""
     now_monotonic_ns = now_monotonic_ns or time.monotonic_ns()
     printer_status = printer_status or {}
     live_status = live_status or {}
@@ -35,6 +39,7 @@ def build_dashboard_status(printer_status, live_status,
         printer_status.get("configfile", {})
         .get("settings", {})
         .get("extruder", {}))
+    firmware_retraction = printer_status.get("firmware_retraction") or {}
     connected = webhooks.get("state") == "ready" and not error
 
     updated_ns = live_status.get("updated_host_monotonic_ns")
@@ -46,6 +51,8 @@ def build_dashboard_status(printer_status, live_status,
     live_error = live_status.get("state") == "error"
 
     force = live_status.get("force") or {}
+    control_status = control_status or {}
+    controlled_pressure = control_status.get("pressure") or {}
     acceleration = live_status.get("acceleration") or {}
     accelerometer_config = live_status.get("accelerometer_config") or {}
     accelerometer_enabled = accelerometer_config.get("enabled", True)
@@ -121,6 +128,14 @@ def build_dashboard_status(printer_status, live_status,
                 config_extruder.get("filament_diameter")),
             "maxExtrudeCrossSection": _number(
                 config_extruder.get("max_extrude_cross_section")),
+            "firmwareRetractionAvailable": (
+                bool(firmware_retraction)
+                or bool(control_status.get(
+                    "firmwareRetractionAvailable"))),
+            "retractLength": _number(
+                firmware_retraction.get("retract_length")),
+            "retractSpeed": _number(
+                firmware_retraction.get("retract_speed")),
         },
         "capture": {
             "state": capture_state,
@@ -131,6 +146,10 @@ def build_dashboard_status(printer_status, live_status,
             "alps": {
                 "state": alps_state,
                 "value": _number(force.get("filtered")),
+                "baseline": _number(controlled_pressure.get("baseline")),
+                "delta": _number(controlled_pressure.get("delta")),
+                "normalized": _number(
+                    controlled_pressure.get("normalized")),
                 "sampleRate": _number(sample_rates.get("force")),
             },
             "accelerometer": {
@@ -152,15 +171,18 @@ def build_dashboard_status(printer_status, live_status,
             "message": quality_message,
         },
         "safety": {
-            "printerAction": "none",
+            "printerAction": control_status.get(
+                "printerAction", "none"),
         },
+        "control": control_status,
     }
 
 
 class DashboardData:
-    def __init__(self, moonraker_url, live_status_path):
+    def __init__(self, moonraker_url, live_status_path, controller=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
+        self.controller = controller
 
     def _printer_status(self):
         request = urllib.request.Request(
@@ -186,8 +208,43 @@ class DashboardData:
                 urllib.error.URLError) as exc:
             printer_status = {}
             error = str(exc)
+        if self.controller:
+            retraction = printer_status.get("firmware_retraction") or {}
+            retract_length = _number(retraction.get("retract_length"))
+            self.controller.firmware_retraction_available = bool(retraction)
+            if retract_length is not None:
+                self.controller.current_retract = retract_length
+            control_status = self.controller.status()
+        else:
+            control_status = None
         return build_dashboard_status(
-            printer_status, self._live_status(), error=error)
+            printer_status, self._live_status(), error=error,
+            control_status=control_status)
+
+    def control_status(self):
+        return (
+            self.controller.status() if self.controller else {
+                "mode": "off",
+                "allowPrinterCommands": False,
+                "armed": False,
+                "printerAction": "none",
+                "reason": "controller_disabled",
+            })
+
+    def update_control(self, payload):
+        if not self.controller:
+            raise RuntimeError("controller disabled")
+        return self.controller.update_config(payload)
+
+    def arm_control(self, payload):
+        if not self.controller:
+            raise RuntimeError("controller disabled")
+        return self.controller.arm(str(payload.get("phrase", "")))
+
+    def disarm_control(self):
+        if not self.controller:
+            raise RuntimeError("controller disabled")
+        return self.controller.disarm()
 
 
 def make_handler(data, static_dir):
@@ -217,8 +274,13 @@ def make_handler(data, static_dir):
             if request_path == "/api/health":
                 self._send_json({
                     "status": "ok",
-                    "printer_control": "none",
+                    "printer_control": (
+                        "opt_in_bounded"
+                        if data.controller else "none"),
                 })
+                return
+            if request_path == "/api/control":
+                self._send_json(data.control_status())
                 return
 
             relative = request_path.lstrip("/") or "index.html"
@@ -247,10 +309,37 @@ def make_handler(data, static_dir):
             self.wfile.write(body)
 
         def do_POST(self):
-            self._send_json({
-                "error": "read-only dashboard",
-                "printer_action": "none",
-            }, status=405)
+            parsed = urlparse(self.path)
+            request_path = parsed.path
+            if request_path.startswith("/autopa/"):
+                request_path = "/" + request_path[len("/autopa/"):]
+            if request_path not in {
+                    "/api/control/config",
+                    "/api/control/arm",
+                    "/api/control/disarm"}:
+                self._send_json({
+                    "error": "unsupported endpoint",
+                    "printer_action": "none",
+                }, status=405)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length > 16384:
+                    raise ValueError("request too large")
+                payload = (
+                    json.loads(self.rfile.read(length).decode("utf-8"))
+                    if length else {})
+                if request_path == "/api/control/config":
+                    result = data.update_control(payload)
+                elif request_path == "/api/control/arm":
+                    result = data.arm_control(payload)
+                else:
+                    result = data.disarm_control()
+                self._send_json(result)
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, status=403)
+            except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, status=400)
 
         def log_message(self, message, *args):
             print("%s - %s" % (self.address_string(), message % args))
@@ -272,8 +361,26 @@ def main():
     parser.add_argument(
         "--static-dir",
         default=str(project_root / "dashboard" / "dist" / "client"))
+    parser.add_argument(
+        "--control-state",
+        default=os.path.expanduser(
+            os.environ.get(
+                "AUTOPA_CONTROL_STATE",
+                "~/.local/state/autopa/control.json")))
+    parser.add_argument(
+        "--allow-printer-commands", action="store_true",
+        default=os.environ.get(
+            "AUTOPA_ALLOW_PRINTER_COMMANDS", "0") == "1",
+        help=("Unlock transient, bounded PA/retraction commands. "
+              "The dashboard still requires the confirmation phrase."))
     args = parser.parse_args()
-    data = DashboardData(args.moonraker_url, args.live_status)
+    controller = AdaptiveController(
+        args.live_status, args.control_state,
+        moonraker_url=args.moonraker_url,
+        allow_printer_commands=args.allow_printer_commands)
+    controller.start()
+    data = DashboardData(
+        args.moonraker_url, args.live_status, controller=controller)
     server = ThreadingHTTPServer(
         (args.host, args.port), make_handler(data, args.static_dir))
     print("AutoPA dashboard listening on http://%s:%d" % (
@@ -284,6 +391,7 @@ def main():
         pass
     finally:
         server.server_close()
+        controller.stop()
 
 
 if __name__ == "__main__":
