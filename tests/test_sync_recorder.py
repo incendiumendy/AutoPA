@@ -79,6 +79,8 @@ class LiveStatusTest(unittest.TestCase):
             self.assertFalse(path.with_suffix(".json.tmp").exists())
             self.assertIn("clock", payload)
             self.assertIn("extruder_motion", payload)
+            self.assertIn("toolhead_motion", payload)
+            self.assertIn("gcode_context", payload)
 
     def test_sample_update_does_not_write_live_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -118,6 +120,37 @@ class LiveStatusTest(unittest.TestCase):
             recorder._drain_live_force(live_queue)
             self.assertEqual(128, recorder.stats["force_samples"])
             self.assertEqual(21, recorder.live_status["force"]["filtered"])
+
+    def test_context_events_are_retained_for_print_time_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = SynchronizedRecorder(
+                "unused", "unused", "dataset",
+                live_status_path=str(pathlib.Path(directory, "live.json")))
+            recorder._record_context_events([
+                {
+                    "sequence": 4,
+                    "print_time": 12.5,
+                    "event": "context",
+                    "value": "encoded",
+                },
+                {
+                    "sequence": 5,
+                    "print_time": 12.6,
+                    "event": "unrelated",
+                    "value": "ignored",
+                },
+                {
+                    "sequence": 6,
+                    "print_time": None,
+                    "event": "context",
+                    "value": "invalid",
+                },
+            ])
+            transitions = recorder.live_status[
+                "gcode_context"]["transitions"]
+            self.assertEqual(1, len(transitions))
+            self.assertEqual(12.5, transitions[0]["print_time"])
+            self.assertEqual(1, recorder.stats["gcode_context_markers"])
 
 
 if __name__ == "__main__":

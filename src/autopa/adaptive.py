@@ -10,6 +10,8 @@ import time
 import urllib.error
 import urllib.request
 
+from .gcode_context import ContextTimeline
+
 
 ARM_PHRASE = "AUTOPA VALIDIEREN"
 CONTROL_MODES = {"off", "dry_run", "apply"}
@@ -32,6 +34,7 @@ DEFAULT_CONFIG = {
     "min_force_rate_hz": 1000.0,
     "max_acceleration_mm_s2": 50000.0,
     "temperature_tolerance_c": 2.0,
+    "filament_diameter_mm": 1.75,
 }
 
 BOOLEAN_CONFIG_KEYS = {
@@ -56,6 +59,7 @@ NUMBER_CONFIG_RANGES = {
     "min_force_rate_hz": (100.0, 50000.0),
     "max_acceleration_mm_s2": (1000.0, 200000.0),
     "temperature_tolerance_c": (0.5, 15.0),
+    "filament_diameter_mm": (1.0, 3.0),
 }
 
 
@@ -181,6 +185,23 @@ def extruder_velocity_from_live(live, now_monotonic_ns=None):
     return 0.0, print_time, False
 
 
+def toolhead_velocity_from_live(live, print_time):
+    motion = live.get("toolhead_motion") or {}
+    segments = motion.get("segments") or ()
+    if not segments or not _finite(print_time):
+        return None
+    for segment in reversed(segments):
+        start = float(segment["print_time"])
+        duration = float(segment["duration_s"])
+        if start <= print_time <= start + duration:
+            elapsed = print_time - start
+            return max(
+                0.0,
+                float(segment["start_velocity_mm_s"])
+                + float(segment["acceleration_mm_s2"]) * elapsed)
+    return 0.0
+
+
 def live_sample(live, now_monotonic_ns=None):
     now_ns = now_monotonic_ns or time.monotonic_ns()
     force = live.get("force") or {}
@@ -196,6 +217,7 @@ def live_sample(live, now_monotonic_ns=None):
         if all(_finite(value) for value in components) else None)
     velocity, print_time, pa_active = extruder_velocity_from_live(
         live, now_ns)
+    toolhead_velocity = toolhead_velocity_from_live(live, print_time)
     force_ns = force.get("host_monotonic_ns")
     force_age = (
         max(0.0, (now_ns - force_ns) / 1e9)
@@ -214,6 +236,7 @@ def live_sample(live, now_monotonic_ns=None):
         "accelerometer_enabled": (
             (live.get("accelerometer_config") or {}).get("enabled", True)),
         "e_velocity": velocity,
+        "toolhead_velocity": toolhead_velocity,
         "pressure_advance_active": pa_active,
         "print_state": printer.get("print_state"),
         "temperature": printer.get("temperature_c"),
@@ -249,6 +272,16 @@ class AdaptiveEstimator:
             "pa_windows": 0,
             "retract_events": 0,
             "reason": "waiting_for_live_data",
+            "gcode_context": {
+                "active": False,
+                "layer": None,
+                "z_mm": None,
+                "feature": "unknown",
+                "object": None,
+                "pa_eligible": False,
+                "eligibility_reason": "context_marker_pending_or_missing",
+            },
+            "pa_context_eligible": False,
         }
 
     def update_config(self, config):
@@ -287,6 +320,15 @@ class AdaptiveEstimator:
         now = float(sample.get("host_monotonic") or time.monotonic())
         force = sample.get("force")
         velocity = sample.get("e_velocity")
+        context = sample.get("gcode_context") or {
+            "active": False,
+            "feature": "unknown",
+            "pa_eligible": False,
+            "eligibility_reason": "context_marker_pending_or_missing",
+        }
+        self.snapshot["gcode_context"] = dict(context)
+        self.snapshot["pa_context_eligible"] = bool(
+            context.get("active") and context.get("pa_eligible"))
         reason = self._validity_reason(sample)
         if reason:
             self.snapshot["reason"] = reason
@@ -327,8 +369,14 @@ class AdaptiveEstimator:
             "unit": "counts",
         }
 
-        self.history.append((now, max(0.0, velocity), normalized))
+        if self.snapshot["pa_context_eligible"]:
+            self.history.append((now, max(0.0, velocity), normalized))
+        else:
+            # Never let support, bridge or unknown-feature samples leak into
+            # the next eligible PA correlation window.
+            self.history.clear()
         if (sample.get("print_state") == "printing"
+                and self.snapshot["pa_context_eligible"]
                 and len(self.history) >= 30
                 and now - self.last_pa_evaluation >= 4.0):
             velocities = [item[1] for item in self.history]
@@ -342,7 +390,11 @@ class AdaptiveEstimator:
 
         current_pa = sample.get("pressure_advance")
         minimum_windows = int(self.config["min_pa_windows"])
-        if (_finite(current_pa) and len(self.pa_lags) >= minimum_windows):
+        if not context.get("active"):
+            self.snapshot["pa_confidence"] = "context_waiting"
+        elif not context.get("pa_eligible"):
+            self.snapshot["pa_confidence"] = "context_ignored"
+        elif (_finite(current_pa) and len(self.pa_lags) >= minimum_windows):
             lag = _median(self.pa_lags)
             direction = 1 if lag >= 1 else -1 if lag <= -1 else 0
             self.snapshot["suggested_pa"] = _clamp(
@@ -402,6 +454,7 @@ class AdaptiveController:
         except ValueError:
             self.config = dict(DEFAULT_CONFIG)
         self.estimator = AdaptiveEstimator(self.config)
+        self.context_timeline = ContextTimeline()
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.thread = None
@@ -416,6 +469,12 @@ class AdaptiveController:
         self.command_count = 0
         self.last_command = None
         self.last_error = None
+        self.last_sample = {
+            "e_velocity": None,
+            "volumetric_flow_mm3_s": None,
+            "toolhead_velocity": None,
+            "print_time": None,
+        }
         self.pa_was_applied = False
         self.retract_was_applied = False
         self._send_gcode = send_gcode or self._moonraker_gcode
@@ -578,7 +637,8 @@ class AdaptiveController:
             return
         command = None
         command_kind = None
-        if self.config["adaptive_pa_enabled"]:
+        if (self.config["adaptive_pa_enabled"]
+                and estimate.get("pa_context_eligible")):
             current = sample.get("pressure_advance")
             if self.initial_pa is None and _finite(current):
                 self.initial_pa = float(current)
@@ -626,6 +686,16 @@ class AdaptiveController:
                 self._refresh_firmware_retraction()
             live = self._read_live() if live is None else live
             sample = live_sample(live)
+            self.context_timeline.observe(
+                (live.get("gcode_context") or {}).get("transitions"))
+            sample["gcode_context"] = self.context_timeline.resolve(
+                sample.get("print_time"))
+            velocity = sample.get("e_velocity")
+            diameter = self.config["filament_diameter_mm"]
+            sample["volumetric_flow_mm3_s"] = (
+                math.pi * (diameter / 2.0) ** 2 * max(0.0, float(velocity))
+                if _finite(velocity) else None)
+            self.last_sample = dict(sample)
             if current_retract_mm is not None:
                 self.current_retract = current_retract_mm
                 self.firmware_retraction_available = True
@@ -684,6 +754,17 @@ class AdaptiveController:
                 "paWindows": estimate.get("pa_windows", 0),
                 "retractEvents": estimate.get("retract_events", 0),
                 "reason": estimate.get("reason"),
+                "gcodeContext": estimate.get("gcode_context"),
+                "paContextEligible":
+                    bool(estimate.get("pa_context_eligible")),
+                "extruderVelocityMmS":
+                    self.last_sample.get("e_velocity"),
+                "toolheadVelocityMmS":
+                    self.last_sample.get("toolhead_velocity"),
+                "volumetricFlowMm3S":
+                    self.last_sample.get("volumetric_flow_mm3_s"),
+                "contextPrintTime":
+                    self.last_sample.get("print_time"),
                 "commandCount": self.command_count,
                 "lastCommand": self.last_command,
                 "lastError": self.last_error,

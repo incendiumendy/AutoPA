@@ -100,6 +100,7 @@ src/autopa/
   temperature_plan.py safe per-temperature sweep file generator
   dashboard.py       local status and opt-in bounded control server
   adaptive.py        dry-run PA/retraction estimator and guarded controller
+  gcode_context.py   safe slicer-context parser and copy instrumenter
   quality.py         acquisition and idle-baseline diagnostics
   sweep.py           bounded Klipper PA sweep generator
 klipper/extras/
@@ -162,6 +163,22 @@ The motion channel is optional. AutoPA supports Klipper's LIS2DW, LIS3DH,
 ADXL345 and MPU9250 data endpoints; use `--accelerometer-type none` for a
 force-only capture. See
 [optional accelerometers](docs/ACCELEROMETERS.md).
+
+## Add exact G-code context
+
+AutoPA can create a separate instrumented copy of an ordinary sliced file:
+
+```sh
+PYTHONPATH=src python3 -m autopa.gcode_context \
+  model.gcode model.autopa.gcode
+```
+
+The source is never modified. Context markers identify the executed layer,
+Z height, slicer feature and object on Klipper's real `print_time` axis rather
+than relying on Moonraker's look-ahead-affected file position. Missing or
+unsupported context never interrupts a print; it suppresses context-assisted
+PA evaluation instead. See the bilingual
+[G-Code Context Engine guide](docs/GCODE_CONTEXT.md).
 
 Repeated quality-approved runs can be pooled without admitting rejected data:
 
@@ -227,6 +244,8 @@ move would exceed the axis limit, or the hotend is too cold.
   cancel or emergency-stop a print.
 - Analysis is fail-closed: missing, delayed, clipped or implausible data
   suppresses the PA recommendation.
+- Context-assisted PA is also fail-closed: only an eligible feature marker
+  whose Klipper `print_time` has been reached may open a PA evidence window.
 - Recording and dry-run never change PA or retraction.
 - Analysis will first return a recommendation with confidence and per-cycle
   evidence.

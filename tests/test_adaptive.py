@@ -1,13 +1,16 @@
 import pathlib
 import sys
 import tempfile
+import time
 import unittest
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 from autopa.adaptive import (
     ARM_PHRASE, DEFAULT_CONFIG, AdaptiveController, AdaptiveEstimator,
-    best_pressure_lag, extruder_velocity_from_live, validated_config)
+    best_pressure_lag, extruder_velocity_from_live,
+    toolhead_velocity_from_live, validated_config)
+from autopa.gcode_context import encode_context_marker
 
 
 class AdaptiveMathTests(unittest.TestCase):
@@ -35,6 +38,16 @@ class AdaptiveMathTests(unittest.TestCase):
         self.assertAlmostEqual(-2.5, velocity)
         self.assertAlmostEqual(100.0, print_time)
         self.assertTrue(pa_active)
+
+    def test_toolhead_motion_segment_yields_executed_speed(self):
+        live = {"toolhead_motion": {"segments": [{
+            "print_time": 99.5,
+            "duration_s": 1.0,
+            "start_velocity_mm_s": 40.0,
+            "acceleration_mm_s2": 20.0,
+        }]}}
+        self.assertAlmostEqual(
+            50.0, toolhead_velocity_from_live(live, 100.0))
 
     def test_estimator_learns_baseline_and_pressure(self):
         estimator = AdaptiveEstimator({
@@ -138,6 +151,7 @@ class AdaptiveControllerTests(unittest.TestCase):
             }, {
                 "reason": "ok",
                 "suggested_pa": 0.20,
+                "pa_context_eligible": True,
             })
             self.assertEqual(
                 "SET_PRESSURE_ADVANCE ADVANCE=0.040000", sent[0])
@@ -193,6 +207,94 @@ class AdaptiveControllerTests(unittest.TestCase):
                 "suggested_pa": 0.04,
             })
             self.assertEqual([], sent)
+
+    def test_pa_apply_is_suppressed_without_eligible_context(self):
+        sent = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller = AdaptiveController(
+                "unused", str(pathlib.Path(directory, "control.json")),
+                allow_printer_commands=True, send_gcode=sent.append)
+            controller.update_config({
+                "mode": "dry_run",
+                "adaptive_pa_enabled": True,
+            })
+            controller.arm(ARM_PHRASE)
+            controller._maybe_apply({
+                "print_state": "printing",
+                "pressure_advance": 0.03,
+            }, {
+                "reason": "ok",
+                "suggested_pa": 0.04,
+                "pa_context_eligible": False,
+            })
+            self.assertEqual([], sent)
+
+    def test_controller_resolves_context_at_current_print_time(self):
+        marker = encode_context_marker({
+            "layer": 7,
+            "z_mm": 1.6,
+            "feature": "External perimeter",
+            "object": "cube",
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            now = time.monotonic()
+            now_ns = time.monotonic_ns()
+            controller = AdaptiveController(
+                "unused", str(pathlib.Path(directory, "control.json")))
+            live = {
+                "clock": {
+                    "host_monotonic": now,
+                    "print_time": 100.0,
+                },
+                "gcode_context": {"transitions": [{
+                    "sequence": 1,
+                    "print_time": 99.0,
+                    "event": "context",
+                    "value": marker,
+                }]},
+                "extruder_motion": {"segments": [{
+                    "print_time": 99.0,
+                    "duration_s": 2.0,
+                    "start_velocity_mm_s": 2.0,
+                    "acceleration_mm_s2": 0.0,
+                    "direction": 1.0,
+                    "pressure_advance_active": True,
+                }]},
+                "toolhead_motion": {"segments": [{
+                    "print_time": 99.0,
+                    "duration_s": 2.0,
+                    "start_velocity_mm_s": 80.0,
+                    "acceleration_mm_s2": 0.0,
+                }]},
+                "force": {
+                    "host_monotonic_ns": now_ns,
+                    "filtered": 1000.0,
+                    "raw": 1000.0,
+                },
+                "sample_rates_hz": {"force": 2500.0},
+                "acceleration": {
+                    "x_mm_s2": 0.0,
+                    "y_mm_s2": 0.0,
+                    "z_mm_s2": 0.0,
+                    "errors": 0,
+                    "overflows": 0,
+                },
+                "printer": {
+                    "print_state": "printing",
+                    "temperature_c": 210.0,
+                    "target_c": 210.0,
+                    "pressure_advance": 0.03,
+                },
+            }
+            controller.step(
+                live=live, current_retract_mm=0.8)
+            status = controller.status()
+            self.assertEqual(7, status["gcodeContext"]["layer"])
+            self.assertTrue(status["paContextEligible"])
+            self.assertAlmostEqual(2.0, status["extruderVelocityMmS"])
+            self.assertAlmostEqual(80.0, status["toolheadVelocityMmS"])
+            self.assertAlmostEqual(
+                4.81056375, status["volumetricFlowMm3S"], places=5)
 
 
 if __name__ == "__main__":

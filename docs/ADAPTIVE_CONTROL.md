@@ -72,10 +72,17 @@ No suggestion is applied when any of these is true:
 - an accelerometer reports errors or overflows;
 - measured acceleration exceeds the configured disturbance limit;
 - not enough repeated PA windows or retract events exist.
+- the G-code Context Engine has no executed marker for the current
+  `print_time`, or the current feature is not PA-eligible.
 
 An accelerometer is helpful for rejecting mechanical disturbances but remains
 optional. Supported recorder endpoints include LIS2DW, LIS3DH, ADXL345 and
 MPU9250.
+
+The first context-aware version learns PA timing only during external/internal
+perimeters, infill, solid infill and gap fill. Support, bridges, skirt/brim,
+ironing and unknown features are visible in the dashboard but ignored by the
+PA estimator. See [G-Code Context Engine](GCODE_CONTEXT.md).
 
 ## Auto-Retract limitation
 

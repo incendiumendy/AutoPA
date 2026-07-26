@@ -36,6 +36,10 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /Live-Daten aktiv/);
   assert.match(page, /SUNLU ABS Green/);
   assert.match(page, /Adaptive PA & Auto-Retract/);
+  assert.match(page, /G-Code Context Engine/);
+  assert.match(page, /PA-Messfenster aktiv/);
+  assert.match(page, /Druckgeschwindigkeit/);
+  assert.match(page, /Volumenstrom/);
   assert.match(page, /Dry-Run starten/);
   assert.match(page, /AUTOPA VALIDIEREN/);
   assert.match(page, /firmware_retraction/);

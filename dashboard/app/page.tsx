@@ -66,6 +66,22 @@ type DashboardStatus = {
     paWindows: number;
     retractEvents: number;
     reason: string | null;
+    gcodeContext: {
+      active: boolean;
+      layer: number | null;
+      z_mm: number | null;
+      feature: string;
+      object: string | null;
+      source_line?: number | null;
+      pa_eligible: boolean;
+      eligibility_reason: string;
+      print_time?: number | null;
+    } | null;
+    paContextEligible: boolean;
+    extruderVelocityMmS: number | null;
+    toolheadVelocityMmS: number | null;
+    volumetricFlowMm3S: number | null;
+    contextPrintTime: number | null;
     commandCount: number;
     lastCommand: string | null;
     lastError: string | null;
@@ -235,6 +251,12 @@ const EMPTY_STATUS: DashboardStatus = {
     paWindows: 0,
     retractEvents: 0,
     reason: "waiting_for_live_data",
+    gcodeContext: null,
+    paContextEligible: false,
+    extruderVelocityMmS: null,
+    toolheadVelocityMmS: null,
+    volumetricFlowMm3S: null,
+    contextPrintTime: null,
     commandCount: 0,
     lastCommand: null,
     lastError: null,
@@ -251,6 +273,27 @@ const STATUS_LABEL: Record<SignalState, string> = {
 function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
 }
+
+const FEATURE_LABELS: Record<string, string> = {
+  external_perimeter: "Außenwand",
+  internal_perimeter: "Innenwand",
+  infill: "Infill",
+  solid_infill: "Massives Infill",
+  gap_fill: "Lückenfüllung",
+  bridge: "Brücke / Überhang",
+  support: "Support",
+  skirt_brim: "Skirt / Brim",
+  ironing: "Glätten",
+  unknown: "Unbekannt",
+};
+
+const CONTEXT_REASON_LABELS: Record<string, string> = {
+  eligible_extrusion_feature: "PA-Messfenster aktiv",
+  feature_not_validated_for_pa: "PA-Messfenster ignoriert",
+  feature_unknown: "Feature unbekannt – PA bleibt unverändert",
+  context_marker_pending_or_missing: "Warte auf Context-Marker",
+  print_time_missing: "Klipper-Zeitbasis fehlt",
+};
 
 function LineChart({
   title,
@@ -763,6 +806,85 @@ export default function Home() {
           </div>
 
           <div className="pressure-control-grid">
+            <article className="context-card">
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">G-Code Context Engine</p>
+                  <h2>Aktuell ausgeführter Druckkontext</h2>
+                </div>
+                <span
+                  className={`live-indicator ${
+                    status.control.gcodeContext?.active ? "is-live" : ""
+                  }`}
+                  aria-label={
+                    status.control.gcodeContext?.active
+                      ? "G-Code-Kontext live"
+                      : "Kein G-Code-Kontext"
+                  }
+                >
+                  <span />
+                  {status.control.gcodeContext?.active ? "Live" : "Wartet"}
+                </span>
+              </div>
+              <div className="context-values">
+                <div>
+                  <span>Layer</span>
+                  <strong>
+                    {status.control.gcodeContext?.layer ?? "—"}
+                    {status.control.gcodeContext?.z_mm != null
+                      ? ` · Z ${formatNumber(
+                          status.control.gcodeContext.z_mm,
+                          2,
+                        )} mm`
+                      : ""}
+                    {status.control.gcodeContext?.source_line != null
+                      ? ` · Zeile ${status.control.gcodeContext.source_line}`
+                      : ""}
+                  </strong>
+                </div>
+                <div>
+                  <span>Feature</span>
+                  <strong>
+                    {FEATURE_LABELS[
+                      status.control.gcodeContext?.feature ?? "unknown"
+                    ] ?? status.control.gcodeContext?.feature ?? "Unbekannt"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Objekt</span>
+                  <strong>
+                    {status.control.gcodeContext?.object ?? "Nicht angegeben"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Druckgeschwindigkeit</span>
+                  <strong>
+                    {formatNumber(status.control.toolheadVelocityMmS, 1)} mm/s
+                  </strong>
+                </div>
+                <div>
+                  <span>Extruderbewegung</span>
+                  <strong>
+                    {formatNumber(status.control.extruderVelocityMmS, 2)} mm/s
+                  </strong>
+                </div>
+                <div>
+                  <span>Volumenstrom</span>
+                  <strong>
+                    {formatNumber(status.control.volumetricFlowMm3S, 2)} mm³/s
+                  </strong>
+                </div>
+              </div>
+              <p
+                className={`context-window ${
+                  status.control.paContextEligible ? "eligible" : ""
+                }`}
+              >
+                {CONTEXT_REASON_LABELS[
+                  status.control.gcodeContext?.eligibility_reason ?? ""
+                ] ?? "Kontext fehlt – PA bleibt unverändert"}
+              </p>
+            </article>
             <PressureGauge
               value={status.sensors.alps.value}
               baseline={status.sensors.alps.baseline}

@@ -702,11 +702,61 @@ select {
 }
 
 .pressure-gauge-card,
-.adaptive-card {
+.adaptive-card,
+.context-card {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: linear-gradient(150deg, rgba(23, 27, 34, 0.96), rgba(15, 18, 23, 0.98));
   padding: 22px;
+}
+
+.context-card {
+  grid-column: 1 / -1;
+}
+
+.context-values {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.context-values div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 11px;
+}
+
+.context-values span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.context-values strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-window {
+  margin: 10px 0 0;
+  border-left: 2px solid var(--amber);
+  border-radius: 5px;
+  background: rgba(255, 189, 105, 0.06);
+  padding: 8px 10px;
+  color: var(--amber);
+  font-size: 10px;
+}
+
+.context-window.eligible {
+  border-left-color: var(--green);
+  background: rgba(88, 219, 194, 0.06);
+  color: var(--green);
 }
 
 .pressure-main-value {
@@ -904,6 +954,10 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .context-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .profile-card {
     width: 100%;
   }
@@ -952,6 +1006,10 @@ footer {
   .overview-metrics,
   .chart-grid,
   .health-rows {
+    grid-template-columns: 1fr;
+  }
+
+  .context-values {
     grid-template-columns: 1fr;
   }
 
