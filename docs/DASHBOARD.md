@@ -61,6 +61,27 @@ Each chart footer has its own status point:
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
 
+### Pressure and motion visualization
+
+The primary pressure value is a signed, normalized sensor deviation rather than
+the large factory ADC count:
+
+- `0` is the learned force baseline;
+- `−` means tension / reduced nozzle load;
+- `+` means increased nozzle load.
+
+This is a relative signal percentage, not a calibrated percentage of physical
+force. Raw value, baseline and count delta remain available in the detailed
+pressure card for diagnostics and calibration.
+
+The accelerometer card uses a physical X/Y cross and a separate Z bar. For each
+Klipper accelerometer batch, AutoPA removes the per-axis mean (including the
+static gravity component), then reports the signed strongest X/Y deviation,
+the signed strongest Z deviation and per-axis RMS motion. Values are displayed
+in `m/s²`; capture files keep the original `mm/s²` samples unchanged.
+Klipper's configured `axes_map` remains authoritative, so the visualization
+also works with optional ADXL345 and other supported sensors.
+
 ## Clickable live data and print-bound recorder manager
 
 The dashboard's `Live-Daten einschalten` button can start a passive synchronized

@@ -51,6 +51,12 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /AUTOPA VALIDIEREN/);
   assert.match(page, /firmware_retraction/);
   assert.match(page, /Druck auf der D(?:üse|Ã¼se|\\u00fcse)/);
+  assert.match(page, /Bewegung X \/ Y \/ Z/);
+  assert.match(page, /X-Y-Bewegungskreuz/);
+  assert.match(page, /Z-Bewegungsbalken/);
+  assert.match(page, /Offset\/Schwerkraft entfernt/);
+  assert.match(page, /relatives Signal/);
+  assert.match(page, /formatSignedRelative/);
   assert.doesNotMatch(page, /monitor-policy|Lokale KI|Spaghetti-Erkennung/);
   assert.match(page, /mainsailUrl\.port === "7126"/);
   assert.doesNotMatch(page, /M104|M109|SET_PRESSURE_ADVANCE|PAUSE|CANCEL_PRINT/);

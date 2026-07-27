@@ -50,6 +50,12 @@ class DashboardStatusTests(unittest.TestCase):
                 "x_mm_s2": 3,
                 "y_mm_s2": 4,
                 "z_mm_s2": 0,
+                "motion_x_mm_s2": 1200,
+                "motion_y_mm_s2": -800,
+                "motion_z_mm_s2": 350,
+                "rms_x_mm_s2": 420,
+                "rms_y_mm_s2": 310,
+                "rms_z_mm_s2": 90,
                 "errors": 0,
                 "overflows": 0,
             },
@@ -72,6 +78,14 @@ class DashboardStatusTests(unittest.TestCase):
         self.assertEqual(5.0, result["sensors"]["lis2dw"]["magnitude"])
         self.assertEqual(
             5.0, result["sensors"]["accelerometer"]["magnitude"])
+        self.assertEqual(
+            1200.0, result["sensors"]["accelerometer"]["motionX"])
+        self.assertEqual(
+            -800.0, result["sensors"]["accelerometer"]["motionY"])
+        self.assertEqual(
+            350.0, result["sensors"]["accelerometer"]["motionZ"])
+        self.assertEqual(
+            420.0, result["sensors"]["accelerometer"]["rmsX"])
         self.assertEqual(0.6, result["printer"]["nozzleDiameter"])
         self.assertEqual(1.75, result["printer"]["filamentDiameter"])
         self.assertTrue(

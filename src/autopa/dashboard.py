@@ -178,11 +178,26 @@ def build_dashboard_status(printer_status, live_status,
                 "name": accelerometer_name,
                 "state": accelerometer_state,
                 "magnitude": magnitude,
+                "motionX": _number(
+                    acceleration.get("motion_x_mm_s2")),
+                "motionY": _number(
+                    acceleration.get("motion_y_mm_s2")),
+                "motionZ": _number(
+                    acceleration.get("motion_z_mm_s2")),
+                "rmsX": _number(acceleration.get("rms_x_mm_s2")),
+                "rmsY": _number(acceleration.get("rms_y_mm_s2")),
+                "rmsZ": _number(acceleration.get("rms_z_mm_s2")),
                 "sampleRate": _number(sample_rates.get("acceleration")),
             },
             "lis2dw": {
                 "state": accelerometer_state,
                 "magnitude": magnitude,
+                "motionX": _number(
+                    acceleration.get("motion_x_mm_s2")),
+                "motionY": _number(
+                    acceleration.get("motion_y_mm_s2")),
+                "motionZ": _number(
+                    acceleration.get("motion_z_mm_s2")),
                 "sampleRate": _number(sample_rates.get("acceleration")),
             },
         },

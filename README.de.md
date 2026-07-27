@@ -12,6 +12,9 @@ Datenströme werden über Klippers `print_time`-Zeitbasis synchronisiert und fü
 Das optionale lokale Dashboard zeigt Düsenkraft, Bewegung, Temperatur,
 Pressure Advance, Messqualität sowie bearbeitbare Testprofile für
 PLA/ABS/PETG/ASA/TPU. Gegenüber dem Drucker bleibt es absichtlich nur lesend.
+Der Düsendruck wird relativ zum gelernten Nullpunkt auf einer
+`− / 0 / +`-Skala dargestellt. Die Bewegungsanzeige trennt die
+schwerkraftbereinigte X/Y-Richtung und Z-Auslenkung.
 Weitere Informationen stehen in der
 [Dashboard-Dokumentation](docs/DASHBOARD.md).
 

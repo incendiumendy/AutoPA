@@ -55,6 +55,12 @@ type DashboardStatus = {
       name: string | null;
       state: SignalState;
       magnitude: number | null;
+      motionX: number | null;
+      motionY: number | null;
+      motionZ: number | null;
+      rmsX: number | null;
+      rmsY: number | null;
+      rmsZ: number | null;
       sampleRate: number | null;
     };
   };
@@ -152,8 +158,10 @@ const FILTER_DEFAULTS = {
 };
 
 type PlotPoint = {
-  force: number;
-  acceleration: number;
+  pressure: number;
+  motionX: number;
+  motionY: number;
+  motionZ: number;
   temperature: number;
   target: number;
 };
@@ -301,6 +309,12 @@ const EMPTY_STATUS: DashboardStatus = {
       name: null,
       state: "waiting",
       magnitude: null,
+      motionX: null,
+      motionY: null,
+      motionZ: null,
+      rmsX: null,
+      rmsY: null,
+      rmsZ: null,
       sampleRate: null,
     },
   },
@@ -359,6 +373,19 @@ const STATUS_LABEL: Record<SignalState, string> = {
 
 function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
+}
+
+function formatSignedRelative(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "—";
+  if (Math.abs(value) < 0.02) return "≈ 0 %";
+  const percent = value * 100;
+  return `${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(1)} %`;
+}
+
+function formatMotion(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "—";
+  const converted = value / 1000;
+  return `${converted > 0 ? "+" : converted < 0 ? "−" : ""}${Math.abs(converted).toFixed(2)}`;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -502,6 +529,185 @@ function LineChart({
   );
 }
 
+function LiveIndicator({
+  isLive,
+  idleLabel,
+}: {
+  isLive: boolean;
+  idleLabel: string;
+}) {
+  return (
+    <span
+      className={`live-indicator ${isLive ? "is-live" : ""}`}
+      aria-label={isLive ? "Live-Daten aktiv" : idleLabel}
+    >
+      <span aria-hidden="true" />
+      {isLive ? "Live" : idleLabel}
+    </span>
+  );
+}
+
+function PressureSignalCard({
+  normalized,
+  delta,
+  isLive,
+}: {
+  normalized: number | null;
+  delta: number | null;
+  isLive: boolean;
+}) {
+  const markerPosition =
+    normalized === null
+      ? 50
+      : Math.max(4, Math.min(96, 50 + normalized * 35));
+  return (
+    <article className="chart-card pressure-signal-card">
+      <div className="chart-header">
+        <div>
+          <p className="eyebrow">FLY-ALPS</p>
+          <h3>Düsendruck</h3>
+        </div>
+        <p className="chart-value pressure-signal-value">
+          {formatSignedRelative(normalized)}
+          <span>relatives Signal</span>
+        </p>
+      </div>
+      <div className="pressure-signal-visual">
+        <div
+          className="pressure-signal-scale"
+          aria-label="Düsendruck relativ zum Nullpunkt"
+        >
+          <span className="pressure-signal-zero" />
+          <span
+            className="pressure-signal-marker"
+            style={{ left: `${markerPosition}%` }}
+          />
+        </div>
+        <div className="pressure-direction-labels" aria-hidden="true">
+          <span>−</span>
+          <span>0</span>
+          <span>+</span>
+        </div>
+      </div>
+      <div className="signal-detail-row">
+        <span>Δ {formatNumber(delta, 0)} counts</span>
+        <span>− Zug · + Druck</span>
+      </div>
+      <div className="chart-footer">
+        <span>Nullpunktbezogen</span>
+        <LiveIndicator isLive={isLive} idleLabel="Kein Live-Stream" />
+      </div>
+    </article>
+  );
+}
+
+function MotionVectorCard({
+  sensorType,
+  enabled,
+  x,
+  y,
+  z,
+  rmsX,
+  rmsY,
+  rmsZ,
+  history,
+  isLive,
+}: {
+  sensorType: string;
+  enabled: boolean;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  rmsX: number | null;
+  rmsY: number | null;
+  rmsZ: number | null;
+  history: PlotPoint[];
+  isLive: boolean;
+}) {
+  const recentMaximum = Math.max(
+    0,
+    ...history.flatMap((point) => [
+      Math.abs(point.motionX),
+      Math.abs(point.motionY),
+      Math.abs(point.motionZ),
+    ]),
+    Math.abs(x ?? 0),
+    Math.abs(y ?? 0),
+    Math.abs(z ?? 0),
+  );
+  const scale = Math.min(
+    50000,
+    Math.max(5000, Math.ceil(recentMaximum / 5000) * 5000),
+  );
+  const xPosition = 50 + Math.max(-1, Math.min(1, (x ?? 0) / scale)) * 42;
+  const yPosition = 50 - Math.max(-1, Math.min(1, (y ?? 0) / scale)) * 42;
+  const zOffset = Math.max(-1, Math.min(1, (z ?? 0) / scale)) * 42;
+  const rmsTotal =
+    rmsX === null || rmsY === null || rmsZ === null
+      ? null
+      : Math.sqrt(rmsX ** 2 + rmsY ** 2 + rmsZ ** 2);
+  const idleLabel = enabled ? "Kein Live-Stream" : "Deaktiviert";
+
+  return (
+    <article className="chart-card motion-vector-card">
+      <div className="chart-header">
+        <div>
+          <p className="eyebrow">
+            {enabled ? sensorType.toUpperCase() : "OPTIONAL"}
+          </p>
+          <h3>Bewegung X / Y / Z</h3>
+        </div>
+        <p className="chart-value motion-rms-value">
+          {formatMotion(rmsTotal)}
+          <span>m/s² RMS</span>
+        </p>
+      </div>
+      <div className="motion-visual">
+        <div className="xy-cross" aria-label="X-Y-Bewegungskreuz">
+          <span className="xy-axis xy-axis-x" />
+          <span className="xy-axis xy-axis-y" />
+          <span className="axis-label axis-label-x-minus">−X</span>
+          <span className="axis-label axis-label-x-plus">+X</span>
+          <span className="axis-label axis-label-y-minus">−Y</span>
+          <span className="axis-label axis-label-y-plus">+Y</span>
+          <span
+            className={`xy-motion-dot ${isLive ? "is-live" : ""}`}
+            style={{ left: `${xPosition}%`, top: `${yPosition}%` }}
+          />
+        </div>
+        <div className="z-meter-wrap">
+          <span>+Z</span>
+          <div className="z-meter" aria-label="Z-Bewegungsbalken">
+            <span className="z-zero" />
+            <span
+              className={`z-fill ${zOffset < 0 ? "is-negative" : ""}`}
+              style={{
+                height: `${Math.abs(zOffset)}%`,
+                bottom: zOffset >= 0 ? "50%" : `${50 + zOffset}%`,
+              }}
+            />
+            <span
+              className="z-marker"
+              style={{ bottom: `${50 + zOffset}%` }}
+            />
+          </div>
+          <span>−Z</span>
+        </div>
+      </div>
+      <div className="motion-values">
+        <span>X <strong>{formatMotion(x)}</strong></span>
+        <span>Y <strong>{formatMotion(y)}</strong></span>
+        <span>Z <strong>{formatMotion(z)}</strong></span>
+        <small>m/s² · Offset/Schwerkraft entfernt</small>
+      </div>
+      <div className="chart-footer">
+        <span>Skala ±{formatNumber(scale / 1000, 0)} m/s²</span>
+        <LiveIndicator isLive={isLive} idleLabel={idleLabel} />
+      </div>
+    </article>
+  );
+}
+
 function StateDot({ state }: { state: SignalState }) {
   return (
     <span className={`state-dot state-${state}`}>
@@ -532,7 +738,7 @@ function PressureGauge({
           <h2>Druck auf der Düse</h2>
         </div>
         <strong className="pressure-main-value">
-          {formatNumber(delta, 0)} <span>counts relativ</span>
+          {formatSignedRelative(normalized)} <span>relatives Signal</span>
         </strong>
       </div>
       <div className="pressure-scale" aria-label="Relativer Düsendruck">
@@ -540,18 +746,16 @@ function PressureGauge({
         <span className="pressure-marker" style={{ left: `${percentage}%` }} />
       </div>
       <div className="pressure-scale-labels">
-        <span>Unterdruck</span>
-        <span>Nullpunkt</span>
-        <span>Düsendruck</span>
+        <span>− Zug</span>
+        <span>0</span>
+        <span>+ Druck</span>
       </div>
       <div className="pressure-values">
+        <div><span>Δ Counts</span><strong>{formatNumber(delta, 0)}</strong></div>
         <div><span>Rohwert</span><strong>{formatNumber(value, 0)}</strong></div>
-        <div><span>Nullpunkt</span><strong>{formatNumber(baseline, 0)}</strong></div>
         <div>
-          <span>Normiert</span>
-          <strong>
-            {normalized === null ? "—" : `${(normalized * 100).toFixed(0)} %`}
-          </strong>
+          <span>Nullpunkt</span>
+          <strong>{formatNumber(baseline, 0)}</strong>
         </div>
       </div>
     </article>
@@ -623,8 +827,10 @@ export default function Home() {
         setHistory((current) => [
           ...current,
           {
-            force: next.sensors.alps.value ?? 0,
-            acceleration: next.sensors.accelerometer.magnitude ?? 0,
+            pressure: next.sensors.alps.normalized ?? 0,
+            motionX: next.sensors.accelerometer.motionX ?? 0,
+            motionY: next.sensors.accelerometer.motionY ?? 0,
+            motionZ: next.sensors.accelerometer.motionZ ?? 0,
             temperature: next.printer.temperature ?? 0,
             target: next.printer.target ?? 0,
           },
@@ -941,41 +1147,28 @@ export default function Home() {
             <span className="window-label">60-Sekunden-Fenster</span>
           </div>
           <div className="chart-grid">
-            <LineChart
-              eyebrow="FLY-ALPS"
-              title="Düsendruck"
-              values={history.map((point) => point.force)}
-              color="#b98cff"
-              value={formatNumber(status.sensors.alps.value, 0)}
-              unit="counts"
+            <PressureSignalCard
+              normalized={status.sensors.alps.normalized}
+              delta={status.sensors.alps.delta}
               isLive={
                 status.capture.state === "ok" &&
                 status.sensors.alps.state === "ok"
               }
             />
-            <LineChart
-              eyebrow={
-                status.sensors.accelerometer.enabled
-                  ? status.sensors.accelerometer.type.toUpperCase()
-                  : "OPTIONAL"
-              }
-              title="Bewegung"
-              values={history.map((point) => point.acceleration)}
-              color="#58dbc2"
-              value={formatNumber(
-                status.sensors.accelerometer.magnitude,
-                0,
-              )}
-              unit="mm/s²"
+            <MotionVectorCard
+              sensorType={status.sensors.accelerometer.type}
+              enabled={status.sensors.accelerometer.enabled}
+              x={status.sensors.accelerometer.motionX}
+              y={status.sensors.accelerometer.motionY}
+              z={status.sensors.accelerometer.motionZ}
+              rmsX={status.sensors.accelerometer.rmsX}
+              rmsY={status.sensors.accelerometer.rmsY}
+              rmsZ={status.sensors.accelerometer.rmsZ}
+              history={history}
               isLive={
                 status.capture.state === "ok" &&
                 status.sensors.accelerometer.enabled &&
                 status.sensors.accelerometer.state === "ok"
-              }
-              idleLabel={
-                status.sensors.accelerometer.enabled
-                  ? "Kein Live-Stream"
-                  : "Deaktiviert"
               }
             />
             <LineChart

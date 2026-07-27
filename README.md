@@ -13,6 +13,9 @@ An optional local dashboard displays live force, movement, temperature,
 Pressure Advance, measurement health and editable PLA/ABS/PETG/ASA/TPU test
 profiles. Its experimental controller defaults to a command-free dry-run and
 requires two independent unlocks before it can make bounded runtime changes.
+Nozzle load is shown relative to its learned baseline on a signed
+`− / 0 / +` scale, while motion separates gravity-free X/Y direction and Z
+deflection.
 See
 [local live dashboard](docs/DASHBOARD.md).
 
