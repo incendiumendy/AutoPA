@@ -30,7 +30,7 @@ test("renders opt-in bounded control without direct printer commands", async () 
     "utf8",
   );
   assert.match(page, /printerAction:\s*"none"/);
-  assert.match(page, /Profile lokal speichern/);
+  assert.match(page, /Profile & Filterregeln speichern/);
   assert.match(page, /Neues Filamentprofil hinzufügen/);
   assert.match(page, /Filamentart \/ Name/);
   assert.match(page, /Live-Daten aktiv/);
@@ -41,8 +41,13 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /Druckgeschwindigkeit/);
   assert.match(page, /Volumenstrom/);
   assert.match(page, /Dry-Run starten/);
-  assert.match(page, /Messung bis Druckende starten/);
-  assert.match(page, /Rein passive ALPS-/);
+  assert.match(page, /Live-Daten einschalten/);
+  assert.match(page, /Live-Daten ausschalten/);
+  assert.match(page, /Schaltet die passive ALPS-/);
+  assert.match(page, /Chamber-Filter f(?:ü|Ã¼|\\u00fc)r dieses Material/);
+  assert.match(page, /Kennung im Dateinamen/);
+  assert.match(page, /Filterleistung/);
+  assert.match(page, /Nachlauf/);
   assert.match(page, /AUTOPA VALIDIEREN/);
   assert.match(page, /firmware_retraction/);
   assert.match(page, /Druck auf der D(?:üse|Ã¼se|\\u00fcse)/);

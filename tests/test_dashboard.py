@@ -298,6 +298,61 @@ class DashboardStatusTests(unittest.TestCase):
                 server.server_close()
                 thread.join(2)
 
+    def test_http_filter_surface_saves_profiles_without_direct_gcode(self):
+        class Data:
+            def __init__(self):
+                self.profiles = None
+
+            def filter_status(self):
+                return {
+                    "state": "idle",
+                    "allowCommands": False,
+                    "availableFans": ["chamber_filter"],
+                    "printerAction": "none",
+                }
+
+            def update_filter(self, payload):
+                self.profiles = payload["profiles"]
+                return {
+                    "state": "idle",
+                    "allowCommands": False,
+                    "availableFans": ["chamber_filter"],
+                    "configuredProfiles": len(self.profiles),
+                    "printerAction": "none",
+                }
+
+        data = Data()
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(data, directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            base = "http://127.0.0.1:%d" % server.server_port
+            try:
+                with urllib.request.urlopen(
+                        base + "/api/filter") as response:
+                    payload = json.load(response)
+                self.assertEqual(["chamber_filter"],
+                                 payload["availableFans"])
+                body = json.dumps({"profiles": [{
+                    "id": "abs",
+                    "filter_enabled": True,
+                }]}).encode("utf-8")
+                request = urllib.request.Request(
+                    base + "/api/filter/config", method="POST", data=body,
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(
+                        1, json.load(response)["configuredProfiles"])
+                self.assertEqual("abs", data.profiles[0]["id"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
 
 if __name__ == "__main__":
     unittest.main()

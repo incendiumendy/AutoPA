@@ -32,6 +32,7 @@ type DashboardStatus = {
       canStart: boolean;
       canStop: boolean;
       dataset: string | null;
+      mode?: "disabled" | "live_preview" | "print_bound";
       attachedToPrint: boolean;
       stopReason: string | null;
       error: string | null;
@@ -98,6 +99,27 @@ type DashboardStatus = {
     lastCommand: string | null;
     lastError: string | null;
   };
+  chamberFilter: {
+    state: string;
+    allowCommands: boolean;
+    availableFans: string[];
+    filename: string | null;
+    matchedProfile: {
+      name: string;
+      filter_tag: string;
+      filter_fan: string;
+      filter_speed_percent: number;
+      filter_post_run_minutes: number;
+    } | null;
+    activeFan: string | null;
+    activeSpeedPercent: number | null;
+    postRunSecondsRemaining: number;
+    configuredProfiles: number;
+    lastCommand: string | null;
+    lastError: string | null;
+    commandCount: number;
+    printerAction: "none" | "chamber_filter_only";
+  };
 };
 
 type MaterialProfile = {
@@ -115,6 +137,18 @@ type MaterialProfile = {
   paStop: number;
   paStep: number;
   cycles: number;
+  filterEnabled: boolean;
+  filterTag: string;
+  filterFan: string;
+  filterSpeedPercent: number;
+  filterPostRunMinutes: number;
+};
+
+const FILTER_DEFAULTS = {
+  filterEnabled: false,
+  filterFan: "chamber_filter",
+  filterSpeedPercent: 100,
+  filterPostRunMinutes: 20,
 };
 
 type PlotPoint = {
@@ -140,6 +174,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.05,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[PLA]",
   },
   {
     id: "petg",
@@ -156,6 +192,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[PETG]",
   },
   {
     id: "abs",
@@ -172,6 +210,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[ABS]",
   },
   {
     id: "asa",
@@ -188,6 +228,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[ASA]",
   },
   {
     id: "tpu",
@@ -204,6 +246,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.12,
     paStep: 0.02,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[TPU]",
   },
 ];
 
@@ -288,6 +332,21 @@ const EMPTY_STATUS: DashboardStatus = {
     commandCount: 0,
     lastCommand: null,
     lastError: null,
+  },
+  chamberFilter: {
+    state: "disabled",
+    allowCommands: false,
+    availableFans: [],
+    filename: null,
+    matchedProfile: null,
+    activeFan: null,
+    activeSpeedPercent: null,
+    postRunSecondsRemaining: 0,
+    configuredProfiles: 0,
+    lastCommand: null,
+    lastError: null,
+    commandCount: 0,
+    printerAction: "none",
   },
 };
 
@@ -511,6 +570,7 @@ export default function Home() {
   const [controlMessage, setControlMessage] = useState("");
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureMessage, setCaptureMessage] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -519,16 +579,29 @@ export default function Home() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as Array<
-          MaterialProfile | Omit<MaterialProfile, "id">
+          Partial<MaterialProfile> & Pick<MaterialProfile, "name">
         >;
         if (Array.isArray(parsed) && parsed.length) {
-          const migrated = parsed.map((profile, index) => ({
-            ...profile,
-            id:
-              "id" in profile && profile.id
-                ? profile.id
-                : `migrated-${index}-${profile.name.toLowerCase()}`,
-          }));
+          const migrated = parsed.map((profile, index) => {
+            const basis =
+              DEFAULT_PROFILES.find(
+                (candidate) => candidate.name === profile.name,
+              ) ?? DEFAULT_PROFILES[0];
+            return {
+              ...basis,
+              ...profile,
+              id:
+                profile.id ??
+                `migrated-${index}-${profile.name.toLowerCase()}`,
+              filterEnabled: Boolean(profile.filterEnabled ?? false),
+              filterTag:
+                profile.filterTag ??
+                `[${profile.name.toUpperCase().replaceAll(" ", "_")}]`,
+              filterFan: profile.filterFan ?? "chamber_filter",
+              filterSpeedPercent: profile.filterSpeedPercent ?? 100,
+              filterPostRunMinutes: profile.filterPostRunMinutes ?? 20,
+            };
+          });
           setProfiles(migrated);
           setSelectedId(migrated[0].id);
         }
@@ -584,12 +657,20 @@ export default function Home() {
   const selectedProfile =
     profiles.find((profile) => profile.id === selectedId) ?? profiles[0];
 
-  const updateProfile = (field: keyof MaterialProfile, value: string) => {
-    const parsed = (
-      field === "id" || field === "name" || field === "manufacturer"
-        ? value
-        : Number(value)
-    );
+  const updateProfile = (
+    field: keyof MaterialProfile,
+    value: string | boolean,
+  ) => {
+    const parsed =
+      field === "filterEnabled"
+        ? Boolean(value)
+        : field === "id" ||
+            field === "name" ||
+            field === "manufacturer" ||
+            field === "filterTag" ||
+            field === "filterFan"
+          ? value
+          : Number(value);
     setProfiles((current) =>
       current.map((profile) =>
         profile.id === selectedId
@@ -598,15 +679,54 @@ export default function Home() {
       ),
     );
     setSaved(false);
+    setProfileMessage("");
   };
 
-  const saveProfiles = () => {
+  const saveProfiles = async () => {
     window.localStorage.setItem(
       "autopa-material-profiles-v3",
       JSON.stringify(profiles),
     );
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1800);
+    setProfileMessage("");
+    try {
+      const response = await fetch("api/filter/config", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profiles: profiles.map((profile) => ({
+            id: profile.id,
+            name: profile.name,
+            filter_enabled: profile.filterEnabled,
+            filter_tag: profile.filterTag,
+            filter_fan: profile.filterFan,
+            filter_speed_percent: profile.filterSpeedPercent,
+            filter_post_run_minutes: profile.filterPostRunMinutes,
+          })),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "Filterprofil konnte nicht gespeichert werden",
+        );
+      }
+      setStatus((current) => ({ ...current, chamberFilter: result }));
+      setSaved(true);
+      setProfileMessage(
+        result.allowCommands
+          ? "Profile und Filterregeln gespeichert."
+          : "Filterregeln gespeichert; automatische Lüfterbefehle sind serverseitig gesperrt.",
+      );
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      setSaved(false);
+      setProfileMessage(
+        error instanceof Error
+          ? error.message
+          : "Filterprofil konnte nicht gespeichert werden",
+      );
+    }
   };
 
   const addProfile = () => {
@@ -704,8 +824,10 @@ export default function Home() {
       }));
       setCaptureMessage(
         action === "start"
-          ? "Passive Messung läuft und endet automatisch mit dem Druck."
-          : "Messung wird sauber beendet.",
+          ? result.attachedToPrint
+            ? "Live-Daten sind eingeschaltet und enden automatisch mit dem Druck."
+            : "Live-Daten sind eingeschaltet. Ein neuer Druck wird automatisch erkannt."
+          : "Live-Daten werden sauber ausgeschaltet.",
       );
     } catch (error) {
       setCaptureMessage(
@@ -1164,7 +1286,9 @@ export default function Home() {
                   <strong>Synchronisierte Aufnahme</strong>
                   <span>
                     {status.capture.manager?.active
-                      ? `${status.capture.dataset ?? "Datensatz"} · läuft bis Druckende`
+                      ? status.capture.manager.attachedToPrint
+                        ? `${status.capture.dataset ?? "Datensatz"} · live bis Druckende`
+                        : `${status.capture.dataset ?? "Datensatz"} · Live-Vorschau`
                       : status.capture.manager?.stopReason === "print_finished"
                         ? `${status.capture.dataset ?? "Datensatz"} · am Druckende beendet`
                         : status.capture.dataset ?? "noch kein aktiver Datensatz"}
@@ -1181,7 +1305,7 @@ export default function Home() {
                   disabled={captureBusy || !status.capture.manager.canStop}
                   onClick={() => postCapture("stop")}
                 >
-                  Messung stoppen
+                  Live-Daten ausschalten
                 </button>
               ) : (
                 <button
@@ -1189,18 +1313,19 @@ export default function Home() {
                   className="primary-button"
                   disabled={
                     captureBusy ||
-                    status.printer.printState !== "printing" ||
+                    !status.printer.connected ||
                     !status.capture.manager?.canStart
                   }
                   onClick={() => postCapture("start")}
                 >
-                  Messung bis Druckende starten
+                  Live-Daten einschalten
                 </button>
               )}
             </div>
             <p className="control-note">
-              Rein passive ALPS-/Bewegungsaufnahme. Kein PA-, Rückzugs-, Pause-
-              oder Abbruchbefehl wird durch diesen Knopf gesendet.
+              Schaltet die passive ALPS-/Bewegungsaufnahme direkt ein oder aus.
+              Beginnt ein Druck, endet sie automatisch mit ihm. Kein PA-,
+              Rückzugs-, Pause- oder Abbruchbefehl wird gesendet.
             </p>
             {captureMessage && (
               <p className="control-message">{captureMessage}</p>
@@ -1388,6 +1513,114 @@ export default function Home() {
 
               <div className="divider" />
 
+              <div className="filter-settings">
+                <label className="filter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={selectedProfile.filterEnabled}
+                    onChange={(event) =>
+                      updateProfile("filterEnabled", event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Chamber-Filter für dieses Material</strong>
+                    <small>
+                      {status.chamberFilter.allowCommands
+                        ? "Automatische Lüfterbefehle freigegeben"
+                        : "Serverseitig gesperrt – Konfiguration ist sicher testbar"}
+                    </small>
+                  </span>
+                </label>
+
+                {selectedProfile.filterEnabled && (
+                  <>
+                    <div className="field-group two">
+                      <label>
+                        Kennung im Dateinamen
+                        <input
+                          type="text"
+                          value={selectedProfile.filterTag}
+                          onChange={(event) =>
+                            updateProfile("filterTag", event.target.value)
+                          }
+                          placeholder="[FILTER]"
+                        />
+                      </label>
+                      <label>
+                        Klipper-Lüfter
+                        <select
+                          value={selectedProfile.filterFan}
+                          onChange={(event) =>
+                            updateProfile("filterFan", event.target.value)
+                          }
+                        >
+                          {!status.chamberFilter.availableFans.length && (
+                            <option value={selectedProfile.filterFan}>
+                              {selectedProfile.filterFan ||
+                                "Kein fan_generic gefunden"}
+                            </option>
+                          )}
+                          {status.chamberFilter.availableFans.map((fan) => (
+                            <option value={fan} key={fan}>
+                              {fan}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="field-group two">
+                      <label>
+                        Filterleistung
+                        <span>
+                          <input
+                            type="number"
+                            min="10"
+                            max="100"
+                            step="5"
+                            value={selectedProfile.filterSpeedPercent}
+                            onChange={(event) =>
+                              updateProfile(
+                                "filterSpeedPercent",
+                                event.target.value,
+                              )
+                            }
+                          />
+                          %
+                        </span>
+                      </label>
+                      <label>
+                        Nachlauf
+                        <span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="120"
+                            step="5"
+                            value={selectedProfile.filterPostRunMinutes}
+                            onChange={(event) =>
+                              updateProfile(
+                                "filterPostRunMinutes",
+                                event.target.value,
+                              )
+                            }
+                          />
+                          min
+                        </span>
+                      </label>
+                    </div>
+                    <p className="filter-hint">
+                      Beispiel: Nur eine Datei mit{" "}
+                      <strong>{selectedProfile.filterTag || "[FILTER]"}</strong>{" "}
+                      im Namen aktiviert diese Regel. Bei Fehlern bleibt der
+                      Druck unbeeinflusst; ein bereits laufender Filter wird
+                      nicht vorschnell ausgeschaltet.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="divider" />
+
               <div className="field-group">
                 <label>
                   PA von
@@ -1438,16 +1671,19 @@ export default function Home() {
               </label>
 
               <div className="notice">
-                <strong>Nur Vorbereitung</strong>
+                <strong>Filterstatus: {status.chamberFilter.state}</strong>
                 <p>
                   Das Profil heizt den Drucker nicht und übernimmt keinen
-                  PA-Wert. Jeder Test bleibt beaufsichtigt.
+                  PA-Wert. Filterbefehle sind getrennt freigeschaltet und
+                  betreffen ausschließlich den gewählten `fan_generic`.
                 </p>
               </div>
 
               <div className="profile-actions">
                 <button className="primary-button" onClick={saveProfiles}>
-                  {saved ? "Profile gespeichert" : "Profile lokal speichern"}
+                  {saved
+                    ? "Profile gespeichert"
+                    : "Profile & Filterregeln speichern"}
                 </button>
                 <button
                   className="secondary-button"
@@ -1458,6 +1694,14 @@ export default function Home() {
                   Profil entfernen
                 </button>
               </div>
+              {profileMessage && (
+                <p className="control-message">{profileMessage}</p>
+              )}
+              {status.chamberFilter.lastError && (
+                <p className="control-error">
+                  {status.chamberFilter.lastError}
+                </p>
+              )}
             </div>
           )}
         </aside>

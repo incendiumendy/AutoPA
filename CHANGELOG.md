@@ -10,6 +10,9 @@
   Druckende-Überwachung mit zwölf Stunden Maximaldauer;
 - eingeschränkter Schreibzugriff des gehärteten Dashboard-Dienstes nur auf
   `~/printer_data/autopa`.
+- optionale, getrennt freigeschaltete Chamber-Filter-Regeln je Materialprofil
+  mit Dateinamen-Kennung, validiertem `fan_generic`, Leistung, Nachlauf und
+  Wiederherstellung nach einem Dienstneustart.
 
 ### English
 
@@ -19,6 +22,9 @@
   print-end monitor with a twelve-hour maximum duration;
 - restricted write access for the hardened dashboard service, limited to
   `~/printer_data/autopa`.
+- optional, independently locked chamber-filter rules per material profile,
+  with filename token, validated `fan_generic`, speed, post-run and recovery
+  after a service restart.
 
 ## v0.1.0-alpha.1 - 2026-07-26
 

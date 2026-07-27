@@ -629,6 +629,50 @@ select {
   align-items: center;
 }
 
+.filter-settings {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(88, 219, 194, 0.18);
+  border-radius: 12px;
+  background: rgba(88, 219, 194, 0.045);
+  padding: 13px;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.filter-toggle input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--green);
+}
+
+.filter-toggle span {
+  display: grid;
+  gap: 3px;
+}
+
+.filter-toggle small,
+.filter-hint {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.filter-hint {
+  margin: 0;
+}
+
+.filter-hint strong {
+  color: var(--green);
+}
+
 .notice {
   border-left: 2px solid var(--amber);
   padding: 2px 0 2px 12px;

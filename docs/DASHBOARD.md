@@ -18,6 +18,8 @@ published as a public control surface.
 - learned no-flow baseline, relative nozzle load in ALPS counts and normalized
   pressure;
 - dry-run PA and firmware-retraction recommendations with evidence counters;
+- optional material-profile chamber-filter rules with filename token,
+  validated `fan_generic`, speed and post-run;
 - a single overall `OK`, `waiting`, `warning` or `error` state.
 
 An idle sensor is shown as `waiting`, not as a hardware failure. An explicitly
@@ -59,18 +61,21 @@ Each chart footer has its own status point:
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
 
-## Print-bound recorder manager
+## Clickable live data and print-bound recorder manager
 
-The dashboard can start a passive synchronized recording while Klipper already
-reports `printing`. The managed recording:
+The dashboard's `Live-Daten einschalten` button can start a passive synchronized
+recording while the printer is idle or while Klipper already reports
+`printing`. The managed recording:
 
+- immediately supplies fresh FLY-ALPS and optional accelerometer values;
 - attaches to the current print without restarting Klipper or Moonraker;
+- automatically attaches when a new print begins during a live preview;
 - records FLY-ALPS, the selected optional accelerometer, Klipper motion,
   temperature, Pressure Advance and G-code context;
 - continues when the browser is closed;
 - stops cleanly when `print_stats.state` reaches `complete`, `cancelled`,
   `error` or `standby`;
-- can also be stopped manually from the dashboard;
+- can be switched off manually from the dashboard at any time;
 - has a twelve-hour hard duration limit.
 
 Starting or stopping a recording sends no G-code and never pauses or cancels
@@ -169,6 +174,12 @@ endpoints can only configure dry-run, request transient arming or disarm the
 controller. The shipped service has
 `AUTOPA_ALLOW_PRINTER_COMMANDS=0`, so arming is rejected server-side even if a
 browser calls the endpoint directly.
+
+Chamber-filter commands use an independent
+`AUTOPA_ALLOW_FILTER_COMMANDS=0` lock. Saving a material profile does not
+implicitly unlock it. Only validated `SET_FAN_SPEED` calls for a real
+`fan_generic` can pass that separate path. See
+[filename-triggered chamber filter](CHAMBER_FILTER.md).
 
 For the first printer validation, keep that value at `0`. The pressure gauge
 and proposed PA/retraction values are still visible during an active capture.

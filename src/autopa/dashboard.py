@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from .adaptive import AdaptiveController
 from .capture_manager import CaptureManager
+from .chamber_filter import ChamberFilterController
 from .sync_recorder import ACCELEROMETER_ENDPOINTS
 
 
@@ -29,7 +30,8 @@ def _number(value):
 
 def build_dashboard_status(printer_status, live_status,
                            now_monotonic_ns=None, error=None,
-                           control_status=None, capture_manager_status=None):
+                           control_status=None, capture_manager_status=None,
+                           chamber_filter_status=None):
     """Create the stable browser API and report opt-in controller state."""
     now_monotonic_ns = now_monotonic_ns or time.monotonic_ns()
     printer_status = printer_status or {}
@@ -59,6 +61,12 @@ def build_dashboard_status(printer_status, live_status,
         "active": False,
         "canStart": False,
         "canStop": False,
+        "printerAction": "none",
+    }
+    chamber_filter_status = chamber_filter_status or {
+        "state": "disabled",
+        "allowCommands": False,
+        "availableFans": [],
         "printerAction": "none",
     }
     controlled_pressure = control_status.get("pressure") or {}
@@ -183,20 +191,24 @@ def build_dashboard_status(printer_status, live_status,
             "message": quality_message,
         },
         "safety": {
-            "printerAction": control_status.get(
-                "printerAction", "none"),
+            "printerAction": (
+                chamber_filter_status.get("printerAction")
+                if chamber_filter_status.get("printerAction") != "none"
+                else control_status.get("printerAction", "none")),
         },
         "control": control_status,
+        "chamberFilter": chamber_filter_status,
     }
 
 
 class DashboardData:
     def __init__(self, moonraker_url, live_status_path, controller=None,
-                 capture_manager=None):
+                 capture_manager=None, chamber_filter=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
         self.capture_manager = capture_manager
+        self.chamber_filter = chamber_filter
 
     def _printer_status(self):
         request = urllib.request.Request(
@@ -234,7 +246,32 @@ class DashboardData:
         return build_dashboard_status(
             printer_status, self._live_status(), error=error,
             control_status=control_status,
-            capture_manager_status=self.capture_status())
+            capture_manager_status=self.capture_status(),
+            chamber_filter_status=self.filter_status())
+
+    def filter_status(self):
+        return (
+            self.chamber_filter.status() if self.chamber_filter else {
+                "state": "disabled",
+                "allowCommands": False,
+                "availableFans": [],
+                "filename": None,
+                "matchedProfile": None,
+                "activeFan": None,
+                "activeSpeedPercent": None,
+                "postRunSecondsRemaining": 0.0,
+                "configuredProfiles": 0,
+                "lastCommand": None,
+                "lastError": None,
+                "commandCount": 0,
+                "printerAction": "none",
+            })
+
+    def update_filter(self, payload):
+        if not self.chamber_filter:
+            raise RuntimeError("Chamber-Filter-Controller ist deaktiviert")
+        return self.chamber_filter.update_profiles(
+            payload.get("profiles"))
 
     def capture_status(self):
         return (
@@ -244,6 +281,7 @@ class DashboardData:
                 "canStart": False,
                 "canStop": False,
                 "dataset": None,
+                "mode": "disabled",
                 "attachedToPrint": False,
                 "stopReason": None,
                 "error": None,
@@ -260,8 +298,9 @@ class DashboardData:
         print_state = print_stats.get("state")
         requested_name = str(payload.get("name", "")).strip()
         filename = Path(str(print_stats.get("filename", ""))).stem
+        default_name = filename if print_state == "printing" else "live-preview"
         return self.capture_manager.start(
-            print_state, requested_name or filename or "print")
+            print_state, requested_name or default_name or "print")
 
     def stop_capture(self):
         if not self.capture_manager:
@@ -332,6 +371,9 @@ def make_handler(data, static_dir):
             if request_path == "/api/capture":
                 self._send_json(data.capture_status())
                 return
+            if request_path == "/api/filter":
+                self._send_json(data.filter_status())
+                return
 
             relative = request_path.lstrip("/") or "index.html"
             candidate = (static_root / relative).resolve()
@@ -368,7 +410,8 @@ def make_handler(data, static_dir):
                      "/api/control/arm",
                      "/api/control/disarm",
                      "/api/capture/start",
-                     "/api/capture/stop"}:
+                     "/api/capture/stop",
+                     "/api/filter/config"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -389,8 +432,10 @@ def make_handler(data, static_dir):
                     result = data.disarm_control()
                 elif request_path == "/api/capture/start":
                     result = data.start_capture(payload)
-                else:
+                elif request_path == "/api/capture/stop":
                     result = data.stop_capture()
+                else:
+                    result = data.update_filter(payload)
                 self._send_json(result)
             except PermissionError as exc:
                 self._send_json({"error": str(exc)}, status=403)
@@ -455,6 +500,17 @@ def main():
         "--capture-max-duration", type=float,
         default=float(os.environ.get(
             "AUTOPA_CAPTURE_MAX_DURATION", 12 * 60 * 60)))
+    parser.add_argument(
+        "--filter-state",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_FILTER_STATE",
+            "~/.local/state/autopa/chamber-filter.json")))
+    parser.add_argument(
+        "--allow-filter-commands", action="store_true",
+        default=os.environ.get(
+            "AUTOPA_ALLOW_FILTER_COMMANDS", "0") == "1",
+        help=("Unlock only validated SET_FAN_SPEED commands for configured "
+              "fan_generic chamber filters."))
     args = parser.parse_args()
     controller = AdaptiveController(
         args.live_status, args.control_state,
@@ -478,9 +534,13 @@ def main():
         args.live_status, args.accelerometer, args.accelerometer_type,
         print_state_provider=current_print_state,
         max_duration=args.capture_max_duration)
+    chamber_filter = ChamberFilterController(
+        args.filter_state, moonraker_url=args.moonraker_url,
+        allow_commands=args.allow_filter_commands)
+    chamber_filter.start()
     data = DashboardData(
         args.moonraker_url, args.live_status, controller=controller,
-        capture_manager=capture_manager)
+        capture_manager=capture_manager, chamber_filter=chamber_filter)
     server = ThreadingHTTPServer(
         (args.host, args.port), make_handler(data, args.static_dir))
     print("AutoPA dashboard listening on http://%s:%d" % (
@@ -491,6 +551,7 @@ def main():
         pass
     finally:
         server.server_close()
+        chamber_filter.stop()
         capture_manager.shutdown()
         controller.stop()
 

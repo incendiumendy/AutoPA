@@ -16,9 +16,14 @@ requires two independent unlocks before it can make bounded runtime changes.
 See
 [local live dashboard](docs/DASHBOARD.md).
 
-The passive recorder manager can attach to an already running print, continue
-without an open browser and stop the synchronized ALPS/motion capture when the
-print ends. Starting or stopping this measurement sends no printer G-code.
+The passive recorder manager can switch live data on with one click while idle,
+attach to an already running or later starting print, continue without an open
+browser and stop the synchronized ALPS/motion capture when the print ends.
+Starting or stopping this measurement sends no printer G-code.
+
+Material profiles can also define a separately locked, filename-triggered
+Klipper chamber filter with selectable `fan_generic`, speed and post-run time.
+See [chamber filter documentation](docs/CHAMBER_FILTER.md).
 
 The project targets both ordinary Klipper/Moonraker installations and RatOS.
 It does not replace RatOS configuration files.

@@ -101,6 +101,21 @@ export async function GET() {
         lastCommand: null,
         lastError: null,
       },
+      chamberFilter: {
+        state: "idle",
+        allowCommands: false,
+        availableFans: ["chamber_filter"],
+        filename: null,
+        matchedProfile: null,
+        activeFan: null,
+        activeSpeedPercent: null,
+        postRunSecondsRemaining: 0,
+        configuredProfiles: 0,
+        lastCommand: null,
+        lastError: null,
+        commandCount: 0,
+        printerAction: "none",
+      },
     },
     {
       headers: {
