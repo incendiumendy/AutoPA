@@ -756,7 +756,6 @@ function PressureGauge({
     <article className="pressure-gauge-card">
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">FLY-ALPS · LIVE</p>
           <h2>Druck auf der Düse</h2>
         </div>
         <strong className="pressure-main-value">
