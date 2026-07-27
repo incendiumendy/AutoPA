@@ -90,6 +90,31 @@ class AdaptiveMathTests(unittest.TestCase):
         self.assertAlmostEqual(300.0, result["pressure"]["delta"])
         self.assertAlmostEqual(1.0, result["pressure"]["normalized"])
 
+    def test_idle_preview_learns_baseline_without_motion_segments(self):
+        estimator = AdaptiveEstimator({
+            "min_force_rate_hz": 1000.0,
+            "max_acceleration_mm_s2": 50000.0,
+        })
+        result = estimator.observe({
+            "host_monotonic": 1.0,
+            "force": 1600000.0,
+            "force_age_s": 0.01,
+            "force_rate_hz": 2500.0,
+            "acceleration": 9806.0,
+            "acceleration_errors": 0,
+            "acceleration_overflows": 0,
+            "e_velocity": None,
+            "print_state": "standby",
+            "temperature": 40.0,
+            "target": 0.0,
+            "pressure_advance": 0.03,
+        })
+        self.assertEqual("ok", result["reason"])
+        self.assertEqual(
+            1600000.0, result["pressure"]["baseline"])
+        self.assertEqual(0.0, result["pressure"]["delta"])
+        self.assertEqual(0.0, result["pressure"]["normalized"])
+
 
 class AdaptiveControllerTests(unittest.TestCase):
     def test_missing_live_file_is_waiting_not_sticky_error(self):
