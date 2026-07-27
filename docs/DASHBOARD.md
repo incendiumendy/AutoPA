@@ -84,6 +84,11 @@ headroom instead of touching the end stops. The motion cross and Z bar derive
 their display range from the recent 60-second peak with 50% reserve. This is
 display auto-ranging, not a physical force calibration.
 
+Displayed pressure and motion values additionally use a short exponential
+smoothing window and animated transitions between one-second status updates.
+This affects only the dashboard presentation; capture files and adaptive
+controller input retain the original unsmoothed samples.
+
 The accelerometer card uses a physical X/Y cross and a separate Z bar. For each
 Klipper accelerometer batch, AutoPA removes the per-axis mean (including the
 static gravity component), then reports the signed strongest X/Y deviation,

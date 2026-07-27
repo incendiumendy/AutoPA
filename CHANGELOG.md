@@ -14,6 +14,8 @@
   einzeiligem G-Code-Kontext und sicherem Live-Aufnahme-Schalter;
 - visuelle Ruhezonen sowie automatische Bewegungs-Skalierung mit Reserve und
   weich begrenzter Druckanzeige, ohne Rohdaten oder Regler-Evidenz zu verändern;
+- geglättete Sensoranzeigen und weiche Marker-Übergänge, die ausschließlich die
+  Darstellung betreffen;
 - optionale, getrennt freigeschaltete Chamber-Filter-Regeln je Materialprofil
   mit Dateinamen-Kennung, validiertem `fan_generic`, Leistung, Nachlauf und
   Wiederherstellung nach einem Dienstneustart.
@@ -30,6 +32,8 @@
   one-line G-code context and a safe live-capture switch;
 - visual deadbands, reserved motion auto-ranging and softly saturated pressure
   indication without modifying raw samples or controller evidence;
+- smoothed sensor readouts and fluid marker transitions that affect presentation
+  only;
 - optional, independently locked chamber-filter rules per material profile,
   with filename token, validated `fan_generic`, speed, post-run and recovery
   after a service restart.

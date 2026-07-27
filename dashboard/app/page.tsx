@@ -377,6 +377,26 @@ function formatNumber(value: number | null, digits = 1) {
 
 const PRESSURE_DISPLAY_DEADBAND = 0.1;
 const MOTION_DISPLAY_DEADBAND_MM_S2 = 200;
+const DISPLAY_SMOOTHING_ALPHA = 0.42;
+
+type SmoothedSensorValues = {
+  pressure: number | null;
+  motionX: number | null;
+  motionY: number | null;
+  motionZ: number | null;
+  rmsX: number | null;
+  rmsY: number | null;
+  rmsZ: number | null;
+};
+
+function smoothDisplayValue(
+  previous: number | null,
+  next: number | null,
+) {
+  if (next === null || Number.isNaN(next)) return null;
+  if (previous === null || Number.isNaN(previous)) return next;
+  return previous + (next - previous) * DISPLAY_SMOOTHING_ALPHA;
+}
 
 function formatSignedRelative(value: number | null) {
   if (value === null || Number.isNaN(value)) return "—";
@@ -786,6 +806,15 @@ function PressureGauge({
 export default function Home() {
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [history, setHistory] = useState<PlotPoint[]>([]);
+  const smoothedSensors = useRef<SmoothedSensorValues>({
+    pressure: null,
+    motionX: null,
+    motionY: null,
+    motionZ: null,
+    rmsX: null,
+    rmsY: null,
+    rmsZ: null,
+  });
   const [profiles, setProfiles] =
     useState<MaterialProfile[]>(DEFAULT_PROFILES);
   const [selectedId, setSelectedId] = useState("pla");
@@ -844,7 +873,57 @@ export default function Home() {
         if (!response.ok) throw new Error("status unavailable");
         const next = (await response.json()) as DashboardStatus;
         if (!active) return;
-        setStatus(next);
+        const previous = smoothedSensors.current;
+        const displayed = {
+          pressure: smoothDisplayValue(
+            previous.pressure,
+            next.sensors.alps.normalized,
+          ),
+          motionX: smoothDisplayValue(
+            previous.motionX,
+            next.sensors.accelerometer.motionX,
+          ),
+          motionY: smoothDisplayValue(
+            previous.motionY,
+            next.sensors.accelerometer.motionY,
+          ),
+          motionZ: smoothDisplayValue(
+            previous.motionZ,
+            next.sensors.accelerometer.motionZ,
+          ),
+          rmsX: smoothDisplayValue(
+            previous.rmsX,
+            next.sensors.accelerometer.rmsX,
+          ),
+          rmsY: smoothDisplayValue(
+            previous.rmsY,
+            next.sensors.accelerometer.rmsY,
+          ),
+          rmsZ: smoothDisplayValue(
+            previous.rmsZ,
+            next.sensors.accelerometer.rmsZ,
+          ),
+        };
+        smoothedSensors.current = displayed;
+        setStatus({
+          ...next,
+          sensors: {
+            ...next.sensors,
+            alps: {
+              ...next.sensors.alps,
+              normalized: displayed.pressure,
+            },
+            accelerometer: {
+              ...next.sensors.accelerometer,
+              motionX: displayed.motionX,
+              motionY: displayed.motionY,
+              motionZ: displayed.motionZ,
+              rmsX: displayed.rmsX,
+              rmsY: displayed.rmsY,
+              rmsZ: displayed.rmsZ,
+            },
+          },
+        });
         setHistory((current) => [
           ...current,
           {

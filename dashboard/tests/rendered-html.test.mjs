@@ -57,6 +57,8 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /Offset\/Schwerkraft entfernt/);
   assert.match(page, /relatives Signal/);
   assert.match(page, /formatSignedRelative/);
+  assert.match(page, /DISPLAY_SMOOTHING_ALPHA/);
+  assert.match(page, /smoothDisplayValue/);
   assert.doesNotMatch(page, /FLY-ALPS · LIVE/);
   assert.doesNotMatch(page, /monitor-policy|Lokale KI|Spaghetti-Erkennung/);
   assert.match(page, /mainsailUrl\.port === "7126"/);
