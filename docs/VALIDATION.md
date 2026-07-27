@@ -25,6 +25,22 @@ parallel firmware compile also coincided with an EBB42 disconnect. AutoPA
 therefore does not compile or flash firmware during acquisition and treats
 USB error/overflow/retransmit changes as a failed run.
 
+On 27 July 2026, a second supported route was validated by connecting the ALPS
+through the EBB42 Gen2 USB passthrough. Linux enumerated the EBB42 and
+`STMicroelectronics PressureLeveling` as separate CDC devices on the same USB
+branch. After several reconnects and one descriptor error during initial
+plug-in, eleven one-minute checks completed with:
+
+- both `/dev/serial/by-id` paths continuously present;
+- Klipper continuously `ready`;
+- AutoPA capture continuously active with no monitor error;
+- no additional USB disconnect, reset or descriptor error;
+- a final observed ALPS rate of approximately `1447 Hz`.
+
+Serial numbers and the printer network address are intentionally omitted. See
+[EBB42_GEN2_USB_PASSTHROUGH.md](EBB42_GEN2_USB_PASSTHROUGH.md) for the
+reproducible connection and acceptance procedure.
+
 ## Factory protocol validation
 
 The Mellow USB stream was started with `v\n` and stopped with `uv\n`.

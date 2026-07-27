@@ -39,7 +39,8 @@ It does not replace RatOS configuration files.
 ## Validated hardware
 
 - Rat Rig V-Core 3 300 with RatOS
-- Mellow FLY-ALPS firmware `2.0.0`, USB through a powered/stable hub
+- Mellow FLY-ALPS firmware `2.0.0`, USB through the validated EBB42 Gen2
+  passthrough or a powered/stable hub
 - BTT EBB42 Gen2 over USB
 - EBB42 onboard LIS2DW as `lis2dw toolboard_t0`
 - Existing digital ALPS probe on EBB42 pins PA5 (enable) and PA4 (trigger)
@@ -48,20 +49,23 @@ It does not replace RatOS configuration files.
 
 ```text
 Raspberry Pi / RatOS or Klipper
-|- USB hub -> Mellow FLY-ALPS factory firmware
-|             |- USB CDC force stream (~2.6 kHz)
-|             `- digital trigger remains connected to the EBB42
-`- USB -> EBB42 Gen2
-              |- normal toolboard functions
-              `- LIS2DW acceleration stream (~386 Hz)
+`- stable USB uplink -> EBB USB Adapter -> EBB42 Gen2 (USB mode)
+   |- normal toolboard functions and LIS2DW acceleration
+   `- USB passthrough -> Mellow FLY-ALPS factory firmware
+      |- USB CDC force stream
+      `- digital trigger remains connected to the EBB42
 ```
 
-The EBB42 is a USB device, not a USB host or hub. The ALPS therefore needs its
-own USB connection to the Pi or to a good powered hub. Do not crimp a passive
-USB connection from the ALPS into the EBB42 USB connector.
+The EBB42 **Gen2** passthrough follows its selected communication mode and can
+carry the ALPS USB connection while the board is in USB mode. This exact path
+was validated with stable EBB42 and ALPS device IDs, live AutoPA acquisition
+and a ten-minute disconnect monitor. It is not a general claim about older EBB
+revisions. See the bilingual
+[EBB42 Gen2 USB passthrough guide](docs/EBB42_GEN2_USB_PASSTHROUGH.md).
 
 The direct ALPS-to-Pi connection was unstable on the validated machine. A USB
-hub restored reliable operation. See [USB stability](docs/USB_STABILITY.md).
+hub restored reliable operation; the later EBB42 Gen2 passthrough test was also
+stable. See [USB stability](docs/USB_STABILITY.md).
 
 ## Why the ALPS is not flashed
 

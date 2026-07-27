@@ -16,6 +16,9 @@
   weich begrenzter Druckanzeige, ohne Rohdaten oder Regler-Evidenz zu verändern;
 - geglättete Sensoranzeigen und weiche Marker-Übergänge, die ausschließlich die
   Darstellung betreffen;
+- verifizierte und zweisprachig dokumentierte FLY-ALPS-Verbindung über den
+  USB-Passthrough des EBB42 Gen2 einschließlich Stabilitätsprüfung und
+  Rückfallweg;
 - optionale, getrennt freigeschaltete Chamber-Filter-Regeln je Materialprofil
   mit Dateinamen-Kennung, validiertem `fan_generic`, Leistung, Nachlauf und
   Wiederherstellung nach einem Dienstneustart.
@@ -34,6 +37,8 @@
   indication without modifying raw samples or controller evidence;
 - smoothed sensor readouts and fluid marker transitions that affect presentation
   only;
+- validated bilingual documentation for connecting FLY-ALPS through the EBB42
+  Gen2 USB passthrough, including stability checks and fallback guidance;
 - optional, independently locked chamber-filter rules per material profile,
   with filename token, validated `fan_generic`, speed, post-run and recovery
   after a service restart.
