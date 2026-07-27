@@ -101,6 +101,14 @@ class MainsailTileTests(unittest.TestCase):
                 "window.location.assign('/local-vision/')",
                 panel)
             self.assertIn("Dry-Run ein", panel)
+            self.assertIn("Live ein", panel)
+            self.assertIn("/autopa/api/capture/${action}", panel)
+            self.assertIn("Bewegung", panel)
+            self.assertIn("Temperatur", panel)
+            self.assertIn("autopa-context-line", panel)
+            self.assertIn("PRESSURE_DISPLAY_DEADBAND = 0.1", panel)
+            self.assertIn(
+                "MOTION_DISPLAY_DEADBAND_MM_S2 = 200", panel)
             self.assertIn("this.status?.sensors.alps.state === 'ok'", panel)
             self.assertNotIn("SET_PRESSURE_ADVANCE", panel)
             dashboard = (
@@ -129,7 +137,7 @@ class MainsailTileTests(unittest.TestCase):
                 (output / "public/autopa-integration.json").read_text(
                     encoding="utf-8"))
             self.assertEqual("autopa", public_manifest["panel"])
-            self.assertEqual(3, public_manifest["format_version"])
+            self.assertEqual(4, public_manifest["format_version"])
             self.assertEqual(
                 "/local-vision/api/health",
                 public_manifest["optional_health"]["local_vision"])
@@ -137,7 +145,7 @@ class MainsailTileTests(unittest.TestCase):
                 ["/autopa/", "/local-vision/"],
                 public_manifest["navigation_links"])
             self.assertEqual(
-                "off_or_dry_run_only",
+                "passive_capture_and_off_or_dry_run_only",
                 public_manifest["control_policy"])
             self.assertNotIn("source", public_manifest)
             self.assertNotIn("output", public_manifest)

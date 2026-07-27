@@ -74,6 +74,16 @@ This is a relative signal percentage, not a calibrated percentage of physical
 force. Raw value, baseline and count delta remain available in the detailed
 pressure card for diagnostics and calibration.
 
+The display deliberately applies a visual deadband: pressure inside `±10%` is
+shown as approximately zero and per-axis motion below `0.20 m/s²` is centered.
+This prevents idle sensor noise from making the indicators jump. Recorded
+samples and adaptive-control evidence are not rounded or discarded.
+
+The pressure marker uses soft saturation, so normal peaks retain visible
+headroom instead of touching the end stops. The motion cross and Z bar derive
+their display range from the recent 60-second peak with 50% reserve. This is
+display auto-ranging, not a physical force calibration.
+
 The accelerometer card uses a physical X/Y cross and a separate Z bar. For each
 Klipper accelerometer batch, AutoPA removes the per-axis mean (including the
 static gravity component), then reports the signed strongest X/Y deviation,

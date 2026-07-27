@@ -11,52 +11,52 @@
             </v-btn>
         </template>
 
-        <v-card-text class="py-3">
-            <div class="d-flex align-center mb-3">
+        <v-card-text class="autopa-body py-2">
+            <div class="d-flex align-center mb-2">
                 <span class="autopa-live-dot mr-2" :class="{ live: isLive }" />
                 <strong>{{ statusLabel }}</strong>
                 <v-spacer />
                 <v-chip x-small outlined :color="modeColor">{{ modeLabel }}</v-chip>
             </div>
 
-            <v-alert v-if="error" dense text type="warning" class="mb-3">
+            <v-alert v-if="error" dense text type="warning" class="mb-2">
                 {{ labels.unavailable }}
             </v-alert>
 
-            <div v-if="status" class="autopa-grid">
-                <div>
+            <div v-if="status" class="autopa-sensors">
+                <div class="autopa-sensor temperature">
+                    <span>{{ labels.temperature }}</span>
+                    <strong>{{ temperatureLabel }}</strong>
+                    <small>{{ targetTemperatureLabel }}</small>
+                </div>
+                <div class="autopa-sensor motion">
+                    <span>{{ labels.motion }}</span>
+                    <strong>{{ motionLabel }}</strong>
+                    <small>{{ motionAxesLabel }}</small>
+                </div>
+                <div class="autopa-sensor pressure">
                     <span>{{ labels.pressure }}</span>
                     <strong>{{ pressureLabel }}</strong>
-                </div>
-                <div>
-                    <span>PA</span>
-                    <strong>{{ number(status.printer.pressureAdvance, 3) }}</strong>
-                </div>
-                <div>
-                    <span>{{ labels.layer }}</span>
-                    <strong>{{ contextLayer }}</strong>
-                </div>
-                <div>
-                    <span>{{ labels.feature }}</span>
-                    <strong>{{ featureLabel }}</strong>
-                </div>
-                <div>
-                    <span>{{ labels.speed }}</span>
-                    <strong>{{ speedLabel }}</strong>
-                </div>
-                <div>
-                    <span>{{ labels.flow }}</span>
-                    <strong>{{ flowLabel }}</strong>
+                    <small>{{ pressureDirectionLabel }}</small>
                 </div>
             </div>
 
-            <div class="autopa-window mt-3" :class="{ eligible: paWindowActive }">
-                {{ contextStateLabel }}
+            <div v-if="status" class="autopa-context-line mt-2">
+                <span><b>PA</b> {{ number(status.printer.pressureAdvance, 3) }}</span>
+                <span><b>{{ labels.layer }}</b> {{ contextLayer }}</span>
+                <span><b>{{ labels.feature }}</b> {{ featureLabel }}</span>
+                <span><b>{{ labels.speedShort }}</b> {{ speedLabel }}</span>
+                <span><b>{{ labels.flowShort }}</b> {{ flowLabel }}</span>
+            </div>
+
+            <div class="autopa-window mt-2" :class="{ eligible: paWindowActive }">
+                <span>{{ contextStateLabel }}</span>
+                <span class="autopa-quality">{{ qualityLabel }}</span>
             </div>
 
             <div
                 v-if="localVisionInstalled"
-                class="autopa-service-row mt-3"
+                class="autopa-service-row mt-2"
                 :class="{ healthy: localVisionHealthy, failed: !localVisionHealthy }">
                 <span class="autopa-service-dot mr-2" />
                 <strong>Local Vision</strong>
@@ -72,22 +72,33 @@
                 </v-btn>
             </div>
 
-            <div class="d-flex mt-3">
+            <div class="autopa-actions mt-2">
                 <v-btn
-                    small
+                    x-small
                     outlined
-                    color="primary"
+                    :color="liveCaptureActive ? 'success' : 'primary'"
+                    :disabled="liveToggleDisabled"
+                    @click="toggleLiveData">
+                    {{ liveCaptureActive ? labels.liveOff : labels.liveOn }}
+                </v-btn>
+                <v-btn
+                    x-small
+                    outlined
+                    color="warning"
                     :disabled="busy || !status || applyActive"
                     @click="toggleDryRun">
                     {{ dryRunActive ? labels.disable : labels.enable }}
                 </v-btn>
                 <v-spacer />
-                <v-btn small text color="primary" @click="openDashboard">
+                <v-btn x-small text color="primary" @click="openDashboard">
                     {{ labels.open }}
                 </v-btn>
             </div>
 
-            <p v-if="applyActive" class="caption warning--text mt-2 mb-0">
+            <p v-if="actionError" class="caption error--text mt-1 mb-0">
+                {{ actionError }}
+            </p>
+            <p v-if="applyActive" class="caption warning--text mt-1 mb-0">
                 {{ labels.applyNotice }}
             </p>
         </v-card-text>
@@ -101,6 +112,8 @@ import BaseMixin from '@/components/mixins/base'
 import Panel from '@/components/ui/Panel.vue'
 
 type AutoPaMode = 'off' | 'dry_run' | 'apply'
+const PRESSURE_DISPLAY_DEADBAND = 0.1
+const MOTION_DISPLAY_DEADBAND_MM_S2 = 200
 
 interface AutoPaContext {
     active: boolean
@@ -114,20 +127,39 @@ interface AutoPaContext {
 
 interface AutoPaStatus {
     printer: {
+        connected: boolean
+        temperature: number | null
+        target: number | null
         pressureAdvance: number | null
     }
     capture: {
         state: string
         ageSeconds: number | null
+        manager?: {
+            active: boolean
+            canStart: boolean
+            canStop: boolean
+        }
     }
     sensors: {
         alps: {
             state: string
             normalized: number | null
         }
+        accelerometer: {
+            enabled: boolean
+            state: string
+            motionX: number | null
+            motionY: number | null
+            motionZ: number | null
+            rmsX: number | null
+            rmsY: number | null
+            rmsZ: number | null
+        }
     }
     quality: {
         state: string
+        message: string
     }
     control: {
         mode: AutoPaMode
@@ -150,6 +182,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
 
     status: AutoPaStatus | null = null
     error = ''
+    actionError = ''
     busy = false
     timer: number | null = null
     localVisionState: LocalVisionState = 'unknown'
@@ -172,12 +205,16 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             ? {
                   unavailable: 'AutoPA ist nicht erreichbar. Der Druck läuft unverändert weiter.',
                   pressure: 'Düsendruck',
+                  temperature: 'Temperatur',
+                  motion: 'Bewegung',
                   layer: 'Layer',
                   feature: 'Feature',
-                  speed: 'Geschwindigkeit',
-                  flow: 'Volumenstrom',
+                  speedShort: 'v',
+                  flowShort: 'Flow',
                   enable: 'Dry-Run ein',
                   disable: 'Ausschalten',
+                  liveOn: 'Live ein',
+                  liveOff: 'Live aus',
                   open: 'AutoPA öffnen',
                   openLocalVision: 'Local Vision öffnen',
                   waiting: 'Wartet auf Live-Daten',
@@ -192,12 +229,16 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             : {
                   unavailable: 'AutoPA is unavailable. Printing continues unchanged.',
                   pressure: 'Nozzle load',
+                  temperature: 'Temperature',
+                  motion: 'Motion',
                   layer: 'Layer',
                   feature: 'Feature',
-                  speed: 'Speed',
-                  flow: 'Volumetric flow',
+                  speedShort: 'v',
+                  flowShort: 'Flow',
                   enable: 'Enable dry-run',
                   disable: 'Turn off',
+                  liveOn: 'Live on',
+                  liveOff: 'Live off',
                   open: 'Open AutoPA',
                   openLocalVision: 'Open Local Vision',
                   waiting: 'Waiting for live data',
@@ -249,7 +290,62 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
 
     get pressureLabel() {
         const value = this.status?.sensors.alps.normalized
-        return value === null || value === undefined ? '—' : `${Math.round(value * 100)} %`
+        if (value === null || value === undefined) return '—'
+        if (Math.abs(value) < PRESSURE_DISPLAY_DEADBAND) return '≈ 0 %'
+        const sign = value > 0 ? '+' : '−'
+        return `${sign}${Math.abs(value * 100).toFixed(1)} %`
+    }
+
+    get pressureDirectionLabel() {
+        const value = this.status?.sensors.alps.normalized
+        if (
+            value === null ||
+            value === undefined ||
+            Math.abs(value) < PRESSURE_DISPLAY_DEADBAND
+        ) {
+            return this.isGerman ? 'Nullpunkt' : 'Baseline'
+        }
+        if (value > 0) return this.isGerman ? '+ Druck' : '+ Load'
+        return this.isGerman ? '− Zug' : '− Tension'
+    }
+
+    get temperatureLabel() {
+        const value = this.status?.printer.temperature
+        return value === null || value === undefined ? '—' : `${this.number(value, 1)} °C`
+    }
+
+    get targetTemperatureLabel() {
+        const value = this.status?.printer.target
+        if (value === null || value === undefined || value <= 0) {
+            return this.isGerman ? 'Heizung aus' : 'Heater off'
+        }
+        return `${this.isGerman ? 'Ziel' : 'Target'} ${this.number(value, 0)} °C`
+    }
+
+    get motionRms() {
+        const sensor = this.status?.sensors.accelerometer
+        if (!sensor?.enabled) return null
+        const values = [sensor.rmsX, sensor.rmsY, sensor.rmsZ]
+        if (values.some((value) => value === null || value === undefined)) return null
+        return Math.sqrt(values.reduce((sum, value) => sum + Number(value) ** 2, 0))
+    }
+
+    get motionLabel() {
+        const value = this.motionRms
+        if (value === null) return '—'
+        if (value < MOTION_DISPLAY_DEADBAND_MM_S2) return '≈ 0 m/s²'
+        return `${this.number(value / 1000, 2)} m/s²`
+    }
+
+    get motionAxesLabel() {
+        const sensor = this.status?.sensors.accelerometer
+        if (!sensor?.enabled) return this.isGerman ? 'deaktiviert' : 'disabled'
+        const axis = (value: number | null) => {
+            if (value === null || value === undefined) return '—'
+            if (Math.abs(value) < MOTION_DISPLAY_DEADBAND_MM_S2) return '0'
+            return this.number(value / 1000, 1)
+        }
+        return `X ${axis(sensor.motionX)} · Y ${axis(sensor.motionY)} · Z ${axis(sensor.motionZ)}`
     }
 
     get context() {
@@ -309,6 +405,25 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     get contextStateLabel() {
         if (!this.context?.active) return this.labels.contextMissing
         return this.paWindowActive ? this.labels.windowActive : this.labels.windowIgnored
+    }
+
+    get qualityLabel() {
+        const state = this.status?.quality.state
+        if (state === 'ok') return 'OK'
+        if (state === 'error') return this.isGerman ? 'Fehler' : 'Error'
+        if (state === 'warning') return this.isGerman ? 'Prüfen' : 'Check'
+        return this.isGerman ? 'Wartet' : 'Waiting'
+    }
+
+    get liveCaptureActive() {
+        return this.status?.capture.manager?.active === true
+    }
+
+    get liveToggleDisabled() {
+        if (this.busy || !this.status) return true
+        const manager = this.status.capture.manager
+        if (!manager) return true
+        return this.liveCaptureActive ? !manager.canStop : !manager.canStart
     }
 
     get localVisionInstalled() {
@@ -379,6 +494,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     async toggleDryRun() {
         if (!this.status || this.applyActive) return
         this.busy = true
+        this.actionError = ''
         try {
             const payload = this.dryRunActive
                 ? { mode: 'off' }
@@ -396,6 +512,35 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             await this.refresh()
         } catch (error) {
             this.error = error instanceof Error ? error.message : String(error)
+        } finally {
+            this.busy = false
+        }
+    }
+
+    async toggleLiveData() {
+        if (this.liveToggleDisabled) return
+        this.busy = true
+        this.actionError = ''
+        try {
+            const action = this.liveCaptureActive ? 'stop' : 'start'
+            const response = await fetch(`/autopa/api/capture/${action}`, {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: '{}',
+            })
+            if (!response.ok) {
+                const payload = (await response.json().catch(() => ({}))) as {
+                    error?: string
+                }
+                throw new Error(payload.error ?? `HTTP ${response.status}`)
+            }
+            await this.refresh()
+        } catch (error) {
+            this.actionError = error instanceof Error ? error.message : String(error)
         } finally {
             this.busy = false
         }
@@ -425,44 +570,92 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.14);
 }
 
-.autopa-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+.autopa-body {
+    font-size: 0.8rem;
 }
 
-.autopa-grid > div {
+.autopa-sensors {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.autopa-sensor {
     min-width: 0;
-    padding: 8px;
+    padding: 6px 7px;
     border: 1px solid rgba(128, 128, 128, 0.2);
     border-radius: 4px;
 }
 
-.autopa-grid span,
-.autopa-grid strong {
+.autopa-sensor span,
+.autopa-sensor strong,
+.autopa-sensor small {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.autopa-grid span {
+.autopa-sensor span {
     color: var(--v-secondary-lighten2);
-    font-size: 0.72rem;
+    font-size: 0.65rem;
 }
 
-.autopa-grid strong {
-    margin-top: 2px;
-    font-size: 0.88rem;
+.autopa-sensor strong {
+    margin-top: 1px;
+    font-size: 0.83rem;
+}
+
+.autopa-sensor small {
+    margin-top: 1px;
+    color: var(--v-secondary-lighten1);
+    font-size: 0.62rem;
+}
+
+.autopa-sensor.motion strong {
+    color: var(--v-success-base);
+}
+
+.autopa-sensor.pressure strong {
+    color: var(--v-primary-base);
+}
+
+.autopa-context-line {
+    display: flex;
+    align-items: center;
+    gap: 4px 10px;
+    overflow: hidden;
+    color: var(--v-secondary-lighten1);
+    font-size: 0.67rem;
+    white-space: nowrap;
+}
+
+.autopa-context-line span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.autopa-context-line b {
+    color: var(--v-secondary-lighten2);
+    font-weight: 500;
 }
 
 .autopa-window {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 7px 9px;
     border-left: 3px solid var(--v-warning-base);
     border-radius: 3px;
     background: rgba(255, 152, 0, 0.07);
     color: var(--v-warning-base);
     font-size: 0.78rem;
+}
+
+.autopa-quality {
+    flex: 0 0 auto;
+    font-weight: 700;
 }
 
 .autopa-window.eligible {
@@ -503,5 +696,29 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
 .autopa-service-row.failed .autopa-service-dot {
     background: var(--v-error-base);
     box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.14);
+}
+
+.autopa-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+@media (max-width: 420px) {
+    .autopa-sensors {
+        grid-template-columns: 1fr;
+    }
+
+    .autopa-sensor {
+        display: grid;
+        grid-template-columns: 0.9fr 1fr 1.3fr;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .autopa-sensor strong,
+    .autopa-sensor small {
+        margin-top: 0;
+    }
 }
 </style>

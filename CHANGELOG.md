@@ -10,6 +10,10 @@
   Druckende-Überwachung mit zwölf Stunden Maximaldauer;
 - eingeschränkter Schreibzugriff des gehärteten Dashboard-Dienstes nur auf
   `~/printer_data/autopa`.
+- kompaktere native Mainsail-Kachel mit Temperatur, Bewegung, Düsendruck,
+  einzeiligem G-Code-Kontext und sicherem Live-Aufnahme-Schalter;
+- visuelle Ruhezonen sowie automatische Bewegungs-Skalierung mit Reserve und
+  weich begrenzter Druckanzeige, ohne Rohdaten oder Regler-Evidenz zu verändern;
 - optionale, getrennt freigeschaltete Chamber-Filter-Regeln je Materialprofil
   mit Dateinamen-Kennung, validiertem `fan_generic`, Leistung, Nachlauf und
   Wiederherstellung nach einem Dienstneustart.
@@ -22,6 +26,10 @@
   print-end monitor with a twelve-hour maximum duration;
 - restricted write access for the hardened dashboard service, limited to
   `~/printer_data/autopa`.
+- a more compact native Mainsail tile with temperature, motion, nozzle load,
+  one-line G-code context and a safe live-capture switch;
+- visual deadbands, reserved motion auto-ranging and softly saturated pressure
+  indication without modifying raw samples or controller evidence;
 - optional, independently locked chamber-filter rules per material profile,
   with filename token, validated `fan_generic`, speed, post-run and recovery
   after a service restart.

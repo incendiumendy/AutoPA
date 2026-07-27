@@ -375,11 +375,26 @@ function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
 }
 
+const PRESSURE_DISPLAY_DEADBAND = 0.1;
+const MOTION_DISPLAY_DEADBAND_MM_S2 = 200;
+
 function formatSignedRelative(value: number | null) {
   if (value === null || Number.isNaN(value)) return "—";
-  if (Math.abs(value) < 0.02) return "≈ 0 %";
+  if (Math.abs(value) < PRESSURE_DISPLAY_DEADBAND) return "≈ 0 %";
   const percent = value * 100;
   return `${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(1)} %`;
+}
+
+function motionForDisplay(value: number | null) {
+  if (value === null || Number.isNaN(value)) return null;
+  return Math.abs(value) < MOTION_DISPLAY_DEADBAND_MM_S2 ? 0 : value;
+}
+
+function pressureMarkerPosition(value: number | null) {
+  if (value === null || Number.isNaN(value)) return 50;
+  const displayed =
+    Math.abs(value) < PRESSURE_DISPLAY_DEADBAND ? 0 : value;
+  return 50 + Math.tanh(displayed / 1.5) * 42;
 }
 
 function formatMotion(value: number | null) {
@@ -556,10 +571,7 @@ function PressureSignalCard({
   delta: number | null;
   isLive: boolean;
 }) {
-  const markerPosition =
-    normalized === null
-      ? 50
-      : Math.max(4, Math.min(96, 50 + normalized * 35));
+  const markerPosition = pressureMarkerPosition(normalized);
   return (
     <article className="chart-card pressure-signal-card">
       <div className="chart-header">
@@ -624,6 +636,9 @@ function MotionVectorCard({
   history: PlotPoint[];
   isLive: boolean;
 }) {
+  const displayedX = motionForDisplay(x);
+  const displayedY = motionForDisplay(y);
+  const displayedZ = motionForDisplay(z);
   const recentMaximum = Math.max(
     0,
     ...history.flatMap((point) => [
@@ -631,21 +646,29 @@ function MotionVectorCard({
       Math.abs(point.motionY),
       Math.abs(point.motionZ),
     ]),
-    Math.abs(x ?? 0),
-    Math.abs(y ?? 0),
-    Math.abs(z ?? 0),
+    Math.abs(displayedX ?? 0),
+    Math.abs(displayedY ?? 0),
+    Math.abs(displayedZ ?? 0),
   );
-  const scale = Math.min(
-    50000,
-    Math.max(5000, Math.ceil(recentMaximum / 5000) * 5000),
+  const scale = Math.max(
+    5000,
+    Math.ceil((recentMaximum * 1.5) / 5000) * 5000,
   );
-  const xPosition = 50 + Math.max(-1, Math.min(1, (x ?? 0) / scale)) * 42;
-  const yPosition = 50 - Math.max(-1, Math.min(1, (y ?? 0) / scale)) * 42;
-  const zOffset = Math.max(-1, Math.min(1, (z ?? 0) / scale)) * 42;
-  const rmsTotal =
+  const xPosition =
+    50 + Math.max(-1, Math.min(1, (displayedX ?? 0) / scale)) * 42;
+  const yPosition =
+    50 - Math.max(-1, Math.min(1, (displayedY ?? 0) / scale)) * 42;
+  const zOffset =
+    Math.max(-1, Math.min(1, (displayedZ ?? 0) / scale)) * 42;
+  const measuredRms =
     rmsX === null || rmsY === null || rmsZ === null
       ? null
       : Math.sqrt(rmsX ** 2 + rmsY ** 2 + rmsZ ** 2);
+  const rmsTotal =
+    measuredRms !== null &&
+    measuredRms < MOTION_DISPLAY_DEADBAND_MM_S2
+      ? 0
+      : measuredRms;
   const idleLabel = enabled ? "Kein Live-Stream" : "Deaktiviert";
 
   return (
@@ -695,9 +718,9 @@ function MotionVectorCard({
         </div>
       </div>
       <div className="motion-values">
-        <span>X <strong>{formatMotion(x)}</strong></span>
-        <span>Y <strong>{formatMotion(y)}</strong></span>
-        <span>Z <strong>{formatMotion(z)}</strong></span>
+        <span>X <strong>{formatMotion(displayedX)}</strong></span>
+        <span>Y <strong>{formatMotion(displayedY)}</strong></span>
+        <span>Z <strong>{formatMotion(displayedZ)}</strong></span>
         <small>m/s² · Offset/Schwerkraft entfernt</small>
       </div>
       <div className="chart-footer">
@@ -728,8 +751,7 @@ function PressureGauge({
   delta: number | null;
   normalized: number | null;
 }) {
-  const percentage =
-    normalized === null ? 50 : Math.max(0, Math.min(100, 50 + normalized * 35));
+  const percentage = pressureMarkerPosition(normalized);
   return (
     <article className="pressure-gauge-card">
       <div className="section-heading compact">

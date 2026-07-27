@@ -15,11 +15,23 @@ Die Kachel zeigt:
 
 - erreichbaren bzw. frischen AutoPA-Status;
 - Dry-Run-, Aus- oder bewaffneten Zustand;
-- relativen Düsendruck und aktuellen PA-Wert;
-- ausgeführten Layer und G-Code-Feature;
-- Klipper-Toolhead-Geschwindigkeit und Volumenstrom;
-- ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird.
+- Temperatur, schwerkraftbereinigte Bewegung und relativen Düsendruck als
+  kompakte Hauptwerte;
+- aktuellen PA-Wert, Layer, Feature, Toolhead-Geschwindigkeit und Volumenstrom
+  in einer einzigen platzsparenden Kontextzeile;
+- ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird sowie die
+  Messqualität;
 - optional den Zustand eines getrennt installierten LocalVision-Dienstes.
+
+Die passive Live-Aufnahme kann direkt mit **Live ein** bzw. **Live aus**
+geschaltet werden. Sie sendet keinen G-Code und führt weder Pause noch Abbruch
+aus. Die Anzeige verwendet bewusst eine Ruhezone: relativer Düsendruck
+innerhalb `±10 %` wird als `≈ 0` dargestellt, Bewegungen unter `0,20 m/s²`
+werden visuell auf null gesetzt. Rohdaten und AutoPA-Auswertung bleiben davon
+unverändert. Die ausführliche AutoPA-Seite skaliert die Bewegungsanzeige anhand
+der letzten 60 Sekunden mit 50 % Reserve; die Druckanzeige nähert sich ihren
+Grenzen weich an. Dadurch ist für die reine Anzeige keine manuelle Eichung
+nötig.
 
 Die LocalVision-Zeile erscheint nur, wenn der echte JSON-Health-Endpunkt
 installiert ist. Grün bedeutet `ok`; rot bedeutet, dass die Route vorhanden,
@@ -27,8 +39,9 @@ der Dienst aber nicht gesund oder nicht erreichbar ist. Ohne LocalVision wird
 keine zusätzliche Zeile angezeigt. Der Health-Check verändert weder AutoPA
 noch den Drucker.
 
-Sie kann AutoPA öffnen und ausschließlich zwischen `off` und `dry_run`
-umschalten. Sie kann **keinen bewaffneten Modus starten**, keine
+Sie kann AutoPA öffnen, die passive Aufnahme schalten und ausschließlich
+zwischen `off` und `dry_run` umschalten. Sie kann **keinen bewaffneten Modus
+starten**, keine
 Druckerbefehle freischalten und im bewaffneten Modus auch nicht die
 Wiederherstellung umgehen. Das vollständige AutoPA-Sicherheitsmodell bleibt
 maßgeblich.
@@ -96,12 +109,21 @@ version `2.18.2`. Mainsail treats it like a built-in panel, so it can be moved
 between columns, shown or hidden per device class, and collapsed on the
 dashboard.
 
-The tile displays AutoPA freshness, mode, relative nozzle load, PA, executed
-layer and feature, Klipper toolhead speed, volumetric flow and PA evidence
-window state. If LocalVision is installed, it also shows a separate green or
-red LocalVision health row; installations without the JSON health endpoint do
-not show that row. The health check cannot affect AutoPA or the printer. The
-tile can open AutoPA and switch only between `off` and `dry_run`.
+The tile displays temperature, gravity-free motion and relative nozzle load as
+its compact primary values. PA, executed layer and feature, Klipper toolhead
+speed and volumetric flow share one context line. It also reports PA evidence
+window and measurement quality. A visual deadband reports relative pressure
+inside `±10%` and motion below `0.20 m/s²` as approximately zero without
+altering raw data or controller evidence. The detailed AutoPA page auto-ranges
+motion from the latest 60-second peak with 50% headroom and softly saturates
+the pressure marker. This avoids hard edge hits without requiring display
+calibration.
+
+If LocalVision is installed, the tile also shows a separate green or red
+LocalVision health row; installations without the JSON health endpoint do not
+show that row. The health check cannot affect AutoPA or the printer. The tile
+can switch passive live capture, open AutoPA and switch only between `off` and
+`dry_run`.
 It cannot arm runtime command application or bypass AutoPA's safety gates.
 
 Mainsail has native sortable panels and macro groups but no stable external
