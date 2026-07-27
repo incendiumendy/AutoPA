@@ -469,6 +469,7 @@ class AdaptiveController:
         self.command_count = 0
         self.last_command = None
         self.last_error = None
+        self.input_error = None
         self.last_sample = {
             "e_velocity": None,
             "volumetric_flow_mm3_s": None,
@@ -703,10 +704,19 @@ class AdaptiveController:
                 sample, current_retract_mm=self.current_retract)
             with self.lock:
                 self._maybe_apply(sample, estimate)
+            self.input_error = None
             return estimate
-        except (FileNotFoundError, OSError, ValueError,
-                json.JSONDecodeError) as exc:
-            self.last_error = repr(exc)
+        except FileNotFoundError:
+            # The live file does not exist between captures or during initial
+            # startup. This is an idle/waiting state, not a sticky controller
+            # fault and must never look like a failed printer command.
+            self.input_error = None
+            self.estimator.snapshot["reason"] = "waiting_for_live_data"
+            return None
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            # Malformed or temporarily unreadable input is visible while it
+            # persists, then clears automatically after the next valid read.
+            self.input_error = repr(exc)
             return None
 
     def _run(self):
@@ -767,7 +777,7 @@ class AdaptiveController:
                     self.last_sample.get("print_time"),
                 "commandCount": self.command_count,
                 "lastCommand": self.last_command,
-                "lastError": self.last_error,
+                "lastError": self.last_error or self.input_error,
                 "printerAction": (
                     "bounded_runtime_adjustment"
                     if self.config["mode"] == "apply" else "none"),

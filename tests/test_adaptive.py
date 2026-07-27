@@ -92,6 +92,37 @@ class AdaptiveMathTests(unittest.TestCase):
 
 
 class AdaptiveControllerTests(unittest.TestCase):
+    def test_missing_live_file_is_waiting_not_sticky_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            live = pathlib.Path(directory, "live.json")
+            controller = AdaptiveController(
+                str(live), str(pathlib.Path(directory, "control.json")))
+
+            self.assertIsNone(controller.step())
+            status = controller.status()
+            self.assertEqual("waiting_for_live_data", status["reason"])
+            self.assertIsNone(status["lastError"])
+
+            live.write_text("{}", encoding="utf-8")
+            controller.step()
+            status = controller.status()
+            self.assertEqual("force_missing", status["reason"])
+            self.assertIsNone(status["lastError"])
+
+    def test_transient_live_parse_error_clears_after_valid_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            live = pathlib.Path(directory, "live.json")
+            live.write_text("{", encoding="utf-8")
+            controller = AdaptiveController(
+                str(live), str(pathlib.Path(directory, "control.json")))
+
+            self.assertIsNone(controller.step())
+            self.assertIn("JSONDecodeError", controller.status()["lastError"])
+
+            live.write_text("{}", encoding="utf-8")
+            controller.step()
+            self.assertIsNone(controller.status()["lastError"])
+
     def test_apply_requires_server_unlock_and_exact_phrase(self):
         with tempfile.TemporaryDirectory() as directory:
             state = str(pathlib.Path(directory, "control.json"))
