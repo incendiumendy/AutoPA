@@ -59,6 +59,29 @@ Each chart footer has its own status point:
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
 
+## Print-bound recorder manager
+
+The dashboard can start a passive synchronized recording while Klipper already
+reports `printing`. The managed recording:
+
+- attaches to the current print without restarting Klipper or Moonraker;
+- records FLY-ALPS, the selected optional accelerometer, Klipper motion,
+  temperature, Pressure Advance and G-code context;
+- continues when the browser is closed;
+- stops cleanly when `print_stats.state` reaches `complete`, `cancelled`,
+  `error` or `standby`;
+- can also be stopped manually from the dashboard;
+- has a twelve-hour hard duration limit.
+
+Starting or stopping a recording sends no G-code and never pauses or cancels
+the print. A temporary Moonraker-monitor failure leaves the recording running;
+the duration limit remains the final bound. Recorder failures stop only the
+measurement.
+
+The generated systemd unit grants write access only to
+`~/printer_data/autopa`. `ProtectHome=read-only` and the remaining service
+hardening stay active.
+
 ## Native movable Mainsail tile
 
 An optional pinned-source Mainsail integration provides a real dashboard panel

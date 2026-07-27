@@ -12,6 +12,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .adaptive import AdaptiveController
+from .capture_manager import CaptureManager
+from .sync_recorder import ACCELEROMETER_ENDPOINTS
 
 
 MOONRAKER_QUERY = (
@@ -27,7 +29,7 @@ def _number(value):
 
 def build_dashboard_status(printer_status, live_status,
                            now_monotonic_ns=None, error=None,
-                           control_status=None):
+                           control_status=None, capture_manager_status=None):
     """Create the stable browser API and report opt-in controller state."""
     now_monotonic_ns = now_monotonic_ns or time.monotonic_ns()
     printer_status = printer_status or {}
@@ -52,6 +54,13 @@ def build_dashboard_status(printer_status, live_status,
 
     force = live_status.get("force") or {}
     control_status = control_status or {}
+    capture_manager_status = capture_manager_status or {
+        "state": "disabled",
+        "active": False,
+        "canStart": False,
+        "canStop": False,
+        "printerAction": "none",
+    }
     controlled_pressure = control_status.get("pressure") or {}
     acceleration = live_status.get("acceleration") or {}
     accelerometer_config = live_status.get("accelerometer_config") or {}
@@ -139,8 +148,11 @@ def build_dashboard_status(printer_status, live_status,
         },
         "capture": {
             "state": capture_state,
-            "dataset": live_status.get("dataset"),
+            "dataset": (
+                capture_manager_status.get("dataset")
+                or live_status.get("dataset")),
             "ageSeconds": age_seconds,
+            "manager": capture_manager_status,
         },
         "sensors": {
             "alps": {
@@ -179,10 +191,12 @@ def build_dashboard_status(printer_status, live_status,
 
 
 class DashboardData:
-    def __init__(self, moonraker_url, live_status_path, controller=None):
+    def __init__(self, moonraker_url, live_status_path, controller=None,
+                 capture_manager=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
+        self.capture_manager = capture_manager
 
     def _printer_status(self):
         request = urllib.request.Request(
@@ -219,7 +233,40 @@ class DashboardData:
             control_status = None
         return build_dashboard_status(
             printer_status, self._live_status(), error=error,
-            control_status=control_status)
+            control_status=control_status,
+            capture_manager_status=self.capture_status())
+
+    def capture_status(self):
+        return (
+            self.capture_manager.status() if self.capture_manager else {
+                "state": "disabled",
+                "active": False,
+                "canStart": False,
+                "canStop": False,
+                "dataset": None,
+                "attachedToPrint": False,
+                "stopReason": None,
+                "error": None,
+                "monitorError": None,
+                "stats": None,
+                "printerAction": "none",
+            })
+
+    def start_capture(self, payload):
+        if not self.capture_manager:
+            raise RuntimeError("Recorder-Manager ist deaktiviert")
+        printer_status = self._printer_status()
+        print_stats = printer_status.get("print_stats") or {}
+        print_state = print_stats.get("state")
+        requested_name = str(payload.get("name", "")).strip()
+        filename = Path(str(print_stats.get("filename", ""))).stem
+        return self.capture_manager.start(
+            print_state, requested_name or filename or "print")
+
+    def stop_capture(self):
+        if not self.capture_manager:
+            raise RuntimeError("Recorder-Manager ist deaktiviert")
+        return self.capture_manager.stop()
 
     def control_status(self):
         return (
@@ -282,6 +329,9 @@ def make_handler(data, static_dir):
             if request_path == "/api/control":
                 self._send_json(data.control_status())
                 return
+            if request_path == "/api/capture":
+                self._send_json(data.capture_status())
+                return
 
             relative = request_path.lstrip("/") or "index.html"
             candidate = (static_root / relative).resolve()
@@ -314,9 +364,11 @@ def make_handler(data, static_dir):
             if request_path.startswith("/autopa/"):
                 request_path = "/" + request_path[len("/autopa/"):]
             if request_path not in {
-                    "/api/control/config",
-                    "/api/control/arm",
-                    "/api/control/disarm"}:
+                     "/api/control/config",
+                     "/api/control/arm",
+                     "/api/control/disarm",
+                     "/api/capture/start",
+                     "/api/capture/stop"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -333,8 +385,12 @@ def make_handler(data, static_dir):
                     result = data.update_control(payload)
                 elif request_path == "/api/control/arm":
                     result = data.arm_control(payload)
-                else:
+                elif request_path == "/api/control/disarm":
                     result = data.disarm_control()
+                elif request_path == "/api/capture/start":
+                    result = data.start_capture(payload)
+                else:
+                    result = data.stop_capture()
                 self._send_json(result)
             except PermissionError as exc:
                 self._send_json({"error": str(exc)}, status=403)
@@ -373,14 +429,58 @@ def main():
             "AUTOPA_ALLOW_PRINTER_COMMANDS", "0") == "1",
         help=("Unlock transient, bounded PA/retraction commands. "
               "The dashboard still requires the confirmation phrase."))
+    parser.add_argument(
+        "--alps-device",
+        default=os.environ.get("AUTOPA_ALPS_DEVICE"),
+        help=("Factory FLY-ALPS serial device. If omitted, one unique "
+              "PressureLeveling USB device is discovered."))
+    parser.add_argument(
+        "--klippy-socket",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_KLIPPY_SOCKET",
+            "~/printer_data/comms/klippy.sock")))
+    parser.add_argument(
+        "--output-root",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_OUTPUT_ROOT",
+            "~/printer_data/autopa")))
+    parser.add_argument(
+        "--accelerometer", default=os.environ.get(
+            "AUTOPA_ACCELEROMETER", "toolboard_t0"))
+    parser.add_argument(
+        "--accelerometer-type",
+        choices=(*ACCELEROMETER_ENDPOINTS, "none"),
+        default=os.environ.get("AUTOPA_ACCELEROMETER_TYPE", "lis2dw"))
+    parser.add_argument(
+        "--capture-max-duration", type=float,
+        default=float(os.environ.get(
+            "AUTOPA_CAPTURE_MAX_DURATION", 12 * 60 * 60)))
     args = parser.parse_args()
     controller = AdaptiveController(
         args.live_status, args.control_state,
         moonraker_url=args.moonraker_url,
         allow_printer_commands=args.allow_printer_commands)
     controller.start()
+
+    def current_print_state():
+        request = urllib.request.Request(
+            args.moonraker_url
+            + "/printer/objects/query?print_stats",
+            headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            payload = json.load(response)
+        return (
+            payload.get("result", {}).get("status", {})
+            .get("print_stats", {}).get("state"))
+
+    capture_manager = CaptureManager(
+        args.alps_device, args.klippy_socket, args.output_root,
+        args.live_status, args.accelerometer, args.accelerometer_type,
+        print_state_provider=current_print_state,
+        max_duration=args.capture_max_duration)
     data = DashboardData(
-        args.moonraker_url, args.live_status, controller=controller)
+        args.moonraker_url, args.live_status, controller=controller,
+        capture_manager=capture_manager)
     server = ThreadingHTTPServer(
         (args.host, args.port), make_handler(data, args.static_dir))
     print("AutoPA dashboard listening on http://%s:%d" % (
@@ -391,6 +491,7 @@ def main():
         pass
     finally:
         server.server_close()
+        capture_manager.shutdown()
         controller.stop()
 
 

@@ -26,6 +26,18 @@ type DashboardStatus = {
     state: SignalState;
     dataset: string | null;
     ageSeconds: number | null;
+    manager?: {
+      state: string;
+      active: boolean;
+      canStart: boolean;
+      canStop: boolean;
+      dataset: string | null;
+      attachedToPrint: boolean;
+      stopReason: string | null;
+      error: string | null;
+      monitorError: string | null;
+      printerAction: "none";
+    };
   };
   sensors: {
     alps: {
@@ -213,7 +225,23 @@ const EMPTY_STATUS: DashboardStatus = {
     retractLength: null,
     retractSpeed: null,
   },
-  capture: { state: "waiting", dataset: null, ageSeconds: null },
+  capture: {
+    state: "waiting",
+    dataset: null,
+    ageSeconds: null,
+    manager: {
+      state: "disabled",
+      active: false,
+      canStart: false,
+      canStop: false,
+      dataset: null,
+      attachedToPrint: false,
+      stopReason: null,
+      error: null,
+      monitorError: null,
+      printerAction: "none",
+    },
+  },
   sensors: {
     alps: {
       state: "waiting",
@@ -481,6 +509,8 @@ export default function Home() {
   const [armPhrase, setArmPhrase] = useState("");
   const [controlBusy, setControlBusy] = useState(false);
   const [controlMessage, setControlMessage] = useState("");
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureMessage, setCaptureMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -651,6 +681,38 @@ export default function Home() {
       );
     } finally {
       setControlBusy(false);
+    }
+  };
+
+  const postCapture = async (action: "start" | "stop") => {
+    setCaptureBusy(true);
+    setCaptureMessage("");
+    try {
+      const response = await fetch(`api/capture/${action}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error ?? "Messung konnte nicht geändert werden");
+      }
+      setStatus((current) => ({
+        ...current,
+        capture: { ...current.capture, manager: result },
+      }));
+      setCaptureMessage(
+        action === "start"
+          ? "Passive Messung läuft und endet automatisch mit dem Druck."
+          : "Messung wird sauber beendet.",
+      );
+    } catch (error) {
+      setCaptureMessage(
+        error instanceof Error ? error.message : "Messung fehlgeschlagen",
+      );
+    } finally {
+      setCaptureBusy(false);
     }
   };
 
@@ -1101,12 +1163,51 @@ export default function Home() {
                 <div>
                   <strong>Synchronisierte Aufnahme</strong>
                   <span>
-                    {status.capture.dataset ?? "noch kein aktiver Datensatz"}
+                    {status.capture.manager?.active
+                      ? `${status.capture.dataset ?? "Datensatz"} · läuft bis Druckende`
+                      : status.capture.manager?.stopReason === "print_finished"
+                        ? `${status.capture.dataset ?? "Datensatz"} · am Druckende beendet`
+                        : status.capture.dataset ?? "noch kein aktiver Datensatz"}
                   </span>
                 </div>
                 <StateDot state={status.capture.state} />
               </div>
             </div>
+            <div className="control-actions">
+              {status.capture.manager?.active ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={captureBusy || !status.capture.manager.canStop}
+                  onClick={() => postCapture("stop")}
+                >
+                  Messung stoppen
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    captureBusy ||
+                    status.printer.printState !== "printing" ||
+                    !status.capture.manager?.canStart
+                  }
+                  onClick={() => postCapture("start")}
+                >
+                  Messung bis Druckende starten
+                </button>
+              )}
+            </div>
+            <p className="control-note">
+              Rein passive ALPS-/Bewegungsaufnahme. Kein PA-, Rückzugs-, Pause-
+              oder Abbruchbefehl wird durch diesen Knopf gesendet.
+            </p>
+            {captureMessage && (
+              <p className="control-message">{captureMessage}</p>
+            )}
+            {status.capture.manager?.error && (
+              <p className="control-error">{status.capture.manager.error}</p>
+            )}
           </div>
         </section>
 

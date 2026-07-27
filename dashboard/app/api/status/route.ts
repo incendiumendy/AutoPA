@@ -31,6 +31,18 @@ export async function GET() {
         state: "ok",
         dataset: "Vorschau · ABS 250 °C",
         ageSeconds: 0.08,
+        manager: {
+          state: "idle",
+          active: false,
+          canStart: true,
+          canStop: false,
+          dataset: null,
+          attachedToPrint: false,
+          stopReason: null,
+          error: null,
+          monitorError: null,
+          printerAction: "none",
+        },
       },
       sensors: {
         alps: {

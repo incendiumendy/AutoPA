@@ -236,6 +236,68 @@ class DashboardStatusTests(unittest.TestCase):
                 server.server_close()
                 thread.join(2)
 
+    def test_http_capture_surface_routes_passive_start_and_stop(self):
+        class Data:
+            def __init__(self):
+                self.started = None
+                self.stopped = False
+
+            def capture_status(self):
+                return {
+                    "state": "idle",
+                    "active": False,
+                    "printerAction": "none",
+                }
+
+            def start_capture(self, payload):
+                self.started = payload
+                return {
+                    "state": "capturing",
+                    "active": True,
+                    "printerAction": "none",
+                }
+
+            def stop_capture(self):
+                self.stopped = True
+                return {
+                    "state": "stopping",
+                    "active": True,
+                    "printerAction": "none",
+                }
+
+        data = Data()
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(data, directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            base = "http://127.0.0.1:%d" % server.server_port
+            try:
+                with urllib.request.urlopen(
+                        base + "/api/capture") as response:
+                    self.assertEqual(
+                        "none", json.load(response)["printerAction"])
+                request = urllib.request.Request(
+                    base + "/api/capture/start", method="POST",
+                    data=b'{"name":"benchy"}',
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request) as response:
+                    self.assertTrue(json.load(response)["active"])
+                self.assertEqual("benchy", data.started["name"])
+                request = urllib.request.Request(
+                    base + "/api/capture/stop", method="POST", data=b"{}",
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request):
+                    pass
+                self.assertTrue(data.stopped)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
 
 if __name__ == "__main__":
     unittest.main()

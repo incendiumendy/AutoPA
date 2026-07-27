@@ -15,6 +15,11 @@ PLA/ABS/PETG/ASA/TPU. Gegenüber dem Drucker bleibt es absichtlich nur lesend.
 Weitere Informationen stehen in der
 [Dashboard-Dokumentation](docs/DASHBOARD.md).
 
+Der passive Recorder-Manager kann sich an einen bereits laufenden Druck
+anhängen, ohne offenen Browser weiterlaufen und die synchronisierte
+ALPS-/Bewegungsaufnahme am Druckende sauber stoppen. Beim Starten oder Stoppen
+dieser Messung wird kein G-Code an den Drucker gesendet.
+
 AutoPA unterstützt gewöhnliche Klipper/Moonraker-Installationen und RatOS. Es
 ersetzt keine RatOS-Konfigurationsdateien.
 

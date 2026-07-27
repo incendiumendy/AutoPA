@@ -16,6 +16,10 @@ requires two independent unlocks before it can make bounded runtime changes.
 See
 [local live dashboard](docs/DASHBOARD.md).
 
+The passive recorder manager can attach to an already running print, continue
+without an open browser and stop the synchronized ALPS/motion capture when the
+print ends. Starting or stopping this measurement sends no printer G-code.
+
 The project targets both ordinary Klipper/Moonraker installations and RatOS.
 It does not replace RatOS configuration files.
 
