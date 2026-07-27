@@ -71,8 +71,9 @@ the large factory ADC count:
 - `+` means increased nozzle load.
 
 This is a relative signal percentage, not a calibrated percentage of physical
-force. Raw value, baseline and count delta remain available in the detailed
-pressure card for diagnostics and calibration.
+force. Raw value, baseline and count delta remain available through the local
+status API and capture files for diagnostics and calibration. The dashboard
+shows this signal only once in the primary FLY-ALPS card.
 
 The display deliberately applies a visual deadband: pressure inside `±10%` is
 shown as approximately zero and per-axis motion below `0.20 m/s²` is centered.
@@ -223,8 +224,9 @@ implicitly unlock it. Only validated `SET_FAN_SPEED` calls for a real
 `fan_generic` can pass that separate path. See
 [filename-triggered chamber filter](CHAMBER_FILTER.md).
 
-For the first printer validation, keep that value at `0`. The pressure gauge
-and proposed PA/retraction values are still visible during an active capture.
+For the first printer validation, keep that value at `0`. The primary FLY-ALPS
+pressure card and proposed PA/retraction values remain visible during an active
+capture.
 Only after the dry-run evidence has been reviewed may an operator deliberately
 set it to `1`, restart only the AutoPA dashboard service and enter the exact
 phrase `AUTOPA VALIDIEREN`. See

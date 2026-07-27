@@ -50,7 +50,8 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /Nachlauf/);
   assert.match(page, /AUTOPA VALIDIEREN/);
   assert.match(page, /firmware_retraction/);
-  assert.match(page, /Druck auf der D(?:üse|Ã¼se|\\u00fcse)/);
+  assert.doesNotMatch(page, /function PressureGauge|<PressureGauge/);
+  assert.doesNotMatch(page, /Druck auf der D(?:üse|Ã¼se|\\u00fcse)/);
   assert.match(page, /Bewegung X \/ Y \/ Z/);
   assert.match(page, /X-Y-Bewegungskreuz/);
   assert.match(page, /Z-Bewegungsbalken/);

@@ -1014,12 +1014,11 @@ select {
 
 .pressure-control-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-top: 20px;
 }
 
-.pressure-gauge-card,
 .adaptive-card,
 .context-card {
   border: 1px solid var(--line);
@@ -1077,51 +1076,8 @@ select {
   color: var(--green);
 }
 
-.pressure-main-value {
-  color: var(--purple);
-  font-size: 23px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pressure-main-value span {
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 500;
-}
-
-.pressure-scale {
-  position: relative;
-  height: 16px;
-  margin: 34px 4px 8px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #58dbc2 0%, #252b34 50%, #b98cff 100%);
-}
-
-.pressure-zero {
-  position: absolute;
-  top: -7px;
-  bottom: -7px;
-  left: 50%;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.65);
-}
-
-.pressure-marker {
-  position: absolute;
-  top: 50%;
-  width: 22px;
-  height: 22px;
-  border: 3px solid #101318;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 18px rgba(185, 140, 255, 0.75);
-  transform: translate(-50%, -50%);
-  transition: left 720ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pressure-signal-marker,
-  .pressure-marker,
   .xy-motion-dot,
   .z-fill,
   .z-marker {
@@ -1129,8 +1085,6 @@ select {
   }
 }
 
-.pressure-scale-labels,
-.pressure-values,
 .control-evidence,
 .control-actions,
 .arming-row {
@@ -1139,27 +1093,11 @@ select {
   gap: 8px;
 }
 
-.pressure-scale-labels {
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.pressure-values {
-  margin-top: 26px;
-}
-
-.pressure-values div {
-  display: grid;
-  gap: 5px;
-}
-
-.pressure-values span,
 .control-evidence span {
   color: var(--muted);
   font-size: 9px;
 }
 
-.pressure-values strong,
 .control-evidence strong {
   font-size: 13px;
   font-variant-numeric: tabular-nums;

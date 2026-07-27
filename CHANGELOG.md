@@ -19,6 +19,8 @@
 - verifizierte und zweisprachig dokumentierte FLY-ALPS-Verbindung über den
   USB-Passthrough des EBB42 Gen2 einschließlich Stabilitätsprüfung und
   Rückfallweg;
+- doppelte Düsendruck-Detailkarte aus dem AutoPA-Dashboard entfernt; der
+  Messwert erscheint nur noch in der primären FLY-ALPS-Karte;
 - optionale, getrennt freigeschaltete Chamber-Filter-Regeln je Materialprofil
   mit Dateinamen-Kennung, validiertem `fan_generic`, Leistung, Nachlauf und
   Wiederherstellung nach einem Dienstneustart.
@@ -39,6 +41,8 @@
   only;
 - validated bilingual documentation for connecting FLY-ALPS through the EBB42
   Gen2 USB passthrough, including stability checks and fallback guidance;
+- removed the duplicate nozzle-load detail card so the value appears only in
+  the primary FLY-ALPS card;
 - optional, independently locked chamber-filter rules per material profile,
   with filename token, validated `fan_generic`, speed, post-run and recovery
   after a service restart.

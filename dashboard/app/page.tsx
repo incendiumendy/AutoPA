@@ -760,49 +760,6 @@ function StateDot({ state }: { state: SignalState }) {
   );
 }
 
-function PressureGauge({
-  value,
-  baseline,
-  delta,
-  normalized,
-}: {
-  value: number | null;
-  baseline: number | null;
-  delta: number | null;
-  normalized: number | null;
-}) {
-  const percentage = pressureMarkerPosition(normalized);
-  return (
-    <article className="pressure-gauge-card">
-      <div className="section-heading compact">
-        <div>
-          <h2>Druck auf der Düse</h2>
-        </div>
-        <strong className="pressure-main-value">
-          {formatSignedRelative(normalized)} <span>relatives Signal</span>
-        </strong>
-      </div>
-      <div className="pressure-scale" aria-label="Relativer Düsendruck">
-        <span className="pressure-zero" />
-        <span className="pressure-marker" style={{ left: `${percentage}%` }} />
-      </div>
-      <div className="pressure-scale-labels">
-        <span>− Zug</span>
-        <span>0</span>
-        <span>+ Druck</span>
-      </div>
-      <div className="pressure-values">
-        <div><span>Δ Counts</span><strong>{formatNumber(delta, 0)}</strong></div>
-        <div><span>Rohwert</span><strong>{formatNumber(value, 0)}</strong></div>
-        <div>
-          <span>Nullpunkt</span>
-          <strong>{formatNumber(baseline, 0)}</strong>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export default function Home() {
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [history, setHistory] = useState<PlotPoint[]>([]);
@@ -1362,12 +1319,6 @@ export default function Home() {
                 ] ?? "Kontext fehlt – PA bleibt unverändert"}
               </p>
             </article>
-            <PressureGauge
-              value={status.sensors.alps.value}
-              baseline={status.sensors.alps.baseline}
-              delta={status.sensors.alps.delta}
-              normalized={status.sensors.alps.normalized}
-            />
             <article className="adaptive-card">
               <div className="section-heading compact">
                 <div>
