@@ -87,6 +87,12 @@ The generated systemd unit grants write access only to
 `~/printer_data/autopa`. `ProtectHome=read-only` and the remaining service
 hardening stay active.
 
+Older installed units that only expose their systemd `StateDirectory` are
+supported as well: when `AUTOPA_CONTROL_STATE` points into that directory and
+no separate live/output/filter path is configured, AutoPA keeps all writable
+runtime data beside that control state. This permits an update without
+weakening the existing service sandbox.
+
 ## Native movable Mainsail tile
 
 An optional pinned-source Mainsail integration provides a real dashboard panel

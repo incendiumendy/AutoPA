@@ -450,6 +450,24 @@ def make_handler(data, static_dir):
 
 def main():
     project_root = Path(__file__).resolve().parents[2]
+    configured_control_state = os.environ.get("AUTOPA_CONTROL_STATE")
+    managed_state_root = (
+        os.path.dirname(os.path.abspath(os.path.expanduser(
+            configured_control_state)))
+        if configured_control_state else None)
+    default_live_status = (
+        os.path.join(managed_state_root, "live.json")
+        if managed_state_root
+        else os.path.expanduser("~/printer_data/autopa/live.json"))
+    default_output_root = (
+        os.path.join(managed_state_root, "captures")
+        if managed_state_root
+        else os.path.expanduser("~/printer_data/autopa"))
+    default_filter_state = (
+        os.path.join(managed_state_root, "chamber-filter.json")
+        if managed_state_root
+        else os.path.expanduser(
+            "~/.local/state/autopa/chamber-filter.json"))
     parser = argparse.ArgumentParser(
         description="Serve the read-only AutoPA live dashboard")
     parser.add_argument("--host", default="127.0.0.1")
@@ -458,7 +476,8 @@ def main():
         "--moonraker-url", default="http://127.0.0.1:7125")
     parser.add_argument(
         "--live-status",
-        default=os.path.expanduser("~/printer_data/autopa/live.json"))
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_LIVE_STATUS", default_live_status)))
     parser.add_argument(
         "--static-dir",
         default=str(project_root / "dashboard" / "dist" / "client"))
@@ -487,8 +506,7 @@ def main():
     parser.add_argument(
         "--output-root",
         default=os.path.expanduser(os.environ.get(
-            "AUTOPA_OUTPUT_ROOT",
-            "~/printer_data/autopa")))
+            "AUTOPA_OUTPUT_ROOT", default_output_root)))
     parser.add_argument(
         "--accelerometer", default=os.environ.get(
             "AUTOPA_ACCELEROMETER", "toolboard_t0"))
@@ -503,8 +521,7 @@ def main():
     parser.add_argument(
         "--filter-state",
         default=os.path.expanduser(os.environ.get(
-            "AUTOPA_FILTER_STATE",
-            "~/.local/state/autopa/chamber-filter.json")))
+            "AUTOPA_FILTER_STATE", default_filter_state)))
     parser.add_argument(
         "--allow-filter-commands", action="store_true",
         default=os.environ.get(
