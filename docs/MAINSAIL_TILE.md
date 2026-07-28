@@ -2,9 +2,9 @@
 
 ## Deutsch
 
-AutoPA enthält eine native Mainsail-Kachel für die derzeit validierte
-Mainsail-Version `2.18.2`. Sie wird von Mainsail wie ein eingebautes Panel
-behandelt und kann deshalb unter **Einstellungen → Dashboard** für Mobil,
+AutoPA enthält zwei native Mainsail-Kacheln für die derzeit validierte
+Mainsail-Version `2.18.2`. Sie werden von Mainsail wie eingebaute Panels
+behandelt und können deshalb unter **Einstellungen → Dashboard** für Mobil,
 Tablet, Desktop und Widescreen:
 
 - zwischen den verfügbaren Spalten verschoben werden;
@@ -21,7 +21,15 @@ Die Kachel zeigt:
   in einer einzigen platzsparenden Kontextzeile;
 - ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird sowie die
   Messqualität;
-- optional den Zustand eines getrennt installierten LocalVision-Dienstes.
+- ausschließlich AutoPA-Zustand und AutoPA-Bedienelemente.
+
+Local Vision besitzt eine eigene, unabhängig verschiebbare Kachel. Sie zeigt
+den Dienst- und Kalibrierungsstatus sowie den read-only geprüften Fahrplan.
+Ein Start erfordert den Bestätigungshaken in der Kachel und anschließend einen
+zweiten Dialog mit Bettgröße, sicherer Z-Höhe und allen fünf Messpunkten. Erst
+danach ruft sie die Local-Vision-Kalibrierung auf. Deren serverseitige Sperren
+bleiben maßgeblich: nur Leerlauf, live gelesene Achsgrenzen, normales `G28`
+ohne Heizen und Fortschrittsmeldungen in der Mainsail-Konsole.
 
 Die passive Live-Aufnahme kann direkt mit **Live ein** bzw. **Live aus**
 geschaltet werden. Sie sendet keinen G-Code und führt weder Pause noch Abbruch
@@ -33,11 +41,8 @@ der letzten 60 Sekunden mit 50 % Reserve; die Druckanzeige nähert sich ihren
 Grenzen weich an. Dadurch ist für die reine Anzeige keine manuelle Eichung
 nötig.
 
-Die LocalVision-Zeile erscheint nur, wenn der echte JSON-Health-Endpunkt
-installiert ist. Grün bedeutet `ok`; rot bedeutet, dass die Route vorhanden,
-der Dienst aber nicht gesund oder nicht erreichbar ist. Ohne LocalVision wird
-keine zusätzliche Zeile angezeigt. Der Health-Check verändert weder AutoPA
-noch den Drucker.
+Die AutoPA-Kachel zeigt keinen Local-Vision-Zustand mehr. Dadurch sind beide
+Werkzeuge sichtbar getrennt und es gibt keine doppelte Local-Vision-Anzeige.
 
 Sie kann AutoPA öffnen, die passive Aufnahme schalten und ausschließlich
 zwischen `off` und `dry_run` umschalten. Sie kann **keinen bewaffneten Modus
@@ -104,8 +109,8 @@ AutoPA-Build erzeugt, getestet und bewusst aktiviert werden.
 
 ## English
 
-AutoPA includes a native dashboard tile for the currently validated Mainsail
-version `2.18.2`. Mainsail treats it like a built-in panel, so it can be moved
+AutoPA includes two native dashboard tiles for the currently validated Mainsail
+version `2.18.2`. Mainsail treats them like built-in panels, so they can be moved
 between columns, shown or hidden per device class, and collapsed on the
 dashboard.
 
@@ -119,11 +124,12 @@ motion from the latest 60-second peak with 50% headroom and softly saturates
 the pressure marker. This avoids hard edge hits without requiring display
 calibration.
 
-If LocalVision is installed, the tile also shows a separate green or red
-LocalVision health row; installations without the JSON health endpoint do not
-show that row. The health check cannot affect AutoPA or the printer. The tile
-can switch passive live capture, open AutoPA and switch only between `off` and
-`dry_run`.
+Local Vision has its own independently movable tile with service and
+calibration status plus the read-only checked motion plan. Starting requires a
+checkbox and a second dialog listing bed size, safe Z and all five points. The
+server still enforces idle state, live axis limits, plain `G28` without heating
+and Mainsail-console progress messages. The AutoPA tile no longer contains any
+Local Vision row.
 It cannot arm runtime command application or bypass AutoPA's safety gates.
 
 Mainsail has native sortable panels and macro groups but no stable external

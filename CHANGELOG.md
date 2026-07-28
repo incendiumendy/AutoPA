@@ -4,6 +4,9 @@
 
 ### Deutsch
 
+- eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
+  bestätigter automatischer Kamerakalibrierung; die frühere
+  Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
 - passiver Recorder-Manager im Dashboard, der sich an einen laufenden Druck
   anhängen und die synchronisierte Aufnahme am Druckende sauber stoppen kann;
 - eigene Start-/Stop-Endpunkte ohne Drucker-G-Code sowie eine unabhängige
@@ -27,6 +30,9 @@
 
 ### English
 
+- separate movable Local Vision tile in Mainsail with explicitly confirmed
+  automatic camera calibration; the former Local Vision row was completely
+  removed from the AutoPA tile;
 - passive dashboard recorder manager that can attach to a running print and
   cleanly stop the synchronized capture when the print ends;
 - dedicated start/stop endpoints with no printer G-code and an independent

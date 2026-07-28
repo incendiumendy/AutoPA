@@ -54,24 +54,6 @@
                 <span class="autopa-quality">{{ qualityLabel }}</span>
             </div>
 
-            <div
-                v-if="localVisionInstalled"
-                class="autopa-service-row mt-2"
-                :class="{ healthy: localVisionHealthy, failed: !localVisionHealthy }">
-                <span class="autopa-service-dot mr-2" />
-                <strong>Local Vision</strong>
-                <v-spacer />
-                <span>{{ localVisionLabel }}</span>
-                <v-btn
-                    icon
-                    x-small
-                    class="ml-1"
-                    :aria-label="labels.openLocalVision"
-                    @click="openLocalVision">
-                    <v-icon small>{{ mdiOpenInNew }}</v-icon>
-                </v-btn>
-            </div>
-
             <div class="autopa-actions mt-2">
                 <v-btn
                     x-small
@@ -171,8 +153,6 @@ interface AutoPaStatus {
     }
 }
 
-type LocalVisionState = 'unknown' | 'absent' | 'ok' | 'error'
-
 @Component({
     components: { Panel },
 })
@@ -185,8 +165,6 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     actionError = ''
     busy = false
     timer: number | null = null
-    localVisionState: LocalVisionState = 'unknown'
-
     mounted() {
         void this.refresh()
         this.timer = window.setInterval(() => void this.refresh(), 1000)
@@ -216,11 +194,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   liveOn: 'Live ein',
                   liveOff: 'Live aus',
                   open: 'AutoPA öffnen',
-                  openLocalVision: 'Local Vision öffnen',
                   waiting: 'Wartet auf Live-Daten',
                   live: 'Live-Daten aktiv',
-                  localVisionOk: 'OK',
-                  localVisionError: 'Fehler',
                   applyNotice: 'Bewaffneter Modus kann nur in AutoPA beendet werden.',
                   windowActive: 'PA-Messfenster aktiv',
                   windowIgnored: 'PA-Messfenster ignoriert',
@@ -240,11 +215,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   liveOn: 'Live on',
                   liveOff: 'Live off',
                   open: 'Open AutoPA',
-                  openLocalVision: 'Open Local Vision',
                   waiting: 'Waiting for live data',
                   live: 'Live data active',
-                  localVisionOk: 'OK',
-                  localVisionError: 'Error',
                   applyNotice: 'Armed mode can only be stopped in AutoPA.',
                   windowActive: 'PA evidence window active',
                   windowIgnored: 'PA evidence window ignored',
@@ -426,26 +398,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         return this.liveCaptureActive ? !manager.canStop : !manager.canStart
     }
 
-    get localVisionInstalled() {
-        return this.localVisionState === 'ok' || this.localVisionState === 'error'
-    }
-
-    get localVisionHealthy() {
-        return this.localVisionState === 'ok'
-    }
-
-    get localVisionLabel() {
-        return this.localVisionHealthy
-            ? this.labels.localVisionOk
-            : this.labels.localVisionError
-    }
-
     number(value: number | null | undefined, digits: number) {
         return value === null || value === undefined || !Number.isFinite(value) ? '—' : value.toFixed(digits)
     }
 
     async refresh() {
-        await Promise.all([this.refreshAutoPa(), this.refreshLocalVision()])
+        await this.refreshAutoPa()
     }
 
     async refreshAutoPa() {
@@ -459,35 +417,6 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             this.error = ''
         } catch (error) {
             this.error = error instanceof Error ? error.message : String(error)
-        }
-    }
-
-    async refreshLocalVision() {
-        try {
-            const response = await fetch('/local-vision/api/health', {
-                cache: 'no-store',
-                headers: { Accept: 'application/json' },
-            })
-            const contentType = response.headers.get('content-type') ?? ''
-            if (response.status === 404 || (response.ok && !contentType.includes('application/json'))) {
-                this.localVisionState = 'absent'
-                return
-            }
-            if (!response.ok) {
-                this.localVisionState = 'error'
-                return
-            }
-            const health = (await response.json()) as {
-                ok?: boolean
-                service?: string
-            }
-            if (health.service !== 'local-vision-console') {
-                this.localVisionState = 'absent'
-                return
-            }
-            this.localVisionState = health.ok === true ? 'ok' : 'error'
-        } catch (_error) {
-            this.localVisionState = 'error'
         }
     }
 
@@ -550,9 +479,6 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         window.location.assign('/autopa/')
     }
 
-    openLocalVision() {
-        window.location.assign('/local-vision/')
-    }
 }
 </script>
 
@@ -662,40 +588,6 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     border-left-color: var(--v-success-base);
     background: rgba(76, 175, 80, 0.07);
     color: var(--v-success-base);
-}
-
-.autopa-service-row {
-    display: flex;
-    align-items: center;
-    min-height: 34px;
-    padding: 6px 8px;
-    border: 1px solid rgba(128, 128, 128, 0.2);
-    border-radius: 4px;
-    font-size: 0.78rem;
-}
-
-.autopa-service-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
-
-.autopa-service-row.healthy {
-    color: var(--v-success-base);
-}
-
-.autopa-service-row.healthy .autopa-service-dot {
-    background: var(--v-success-base);
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.14);
-}
-
-.autopa-service-row.failed {
-    color: var(--v-error-base);
-}
-
-.autopa-service-row.failed .autopa-service-dot {
-    background: var(--v-error-base);
-    box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.14);
 }
 
 .autopa-actions {

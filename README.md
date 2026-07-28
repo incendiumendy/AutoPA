@@ -130,7 +130,7 @@ config/
 docs/                installation, protocol, compatibility and safety notes
 tests/               dependency-free unit tests
 dashboard/           responsive browser interface and static production build
-integrations/mainsail native movable AutoPA panel for a pinned Mainsail build
+integrations/mainsail native movable AutoPA and Local Vision panels
 ```
 
 ## Install the safe factory-firmware mode
@@ -201,10 +201,12 @@ unsupported context never interrupts a print; it suppresses context-assisted
 PA evaluation instead. See the bilingual
 [G-Code Context Engine guide](docs/GCODE_CONTEXT.md).
 
-For Mainsail `2.18.2`, AutoPA also provides an optional native panel that can
-be moved, hidden and collapsed with Mainsail's normal dashboard settings. It
-shows compact live/context data and can switch only command-free dry-run on or
-off. See [native Mainsail tile](docs/MAINSAIL_TILE.md).
+For Mainsail `2.18.2`, AutoPA also provides separate native AutoPA and Local
+Vision panels that can be moved, hidden and collapsed with Mainsail's normal
+dashboard settings. The AutoPA tile shows only compact live/context data. The
+Local Vision tile provides supervised camera calibration behind its own
+checkbox, confirmation dialog and server-side motion gates. See
+[native Mainsail tiles](docs/MAINSAIL_TILE.md).
 
 Repeated quality-approved runs can be pooled without admitting rejected data:
 

@@ -91,15 +91,13 @@ class MainsailTileTests(unittest.TestCase):
             panel = (
                 output / "src/components/panels/AutopaPanel.vue"
             ).read_text(encoding="utf-8")
+            localvision_panel = (
+                output / "src/components/panels/LocalvisionPanel.vue"
+            ).read_text(encoding="utf-8")
             self.assertIn("/autopa/api/status", panel)
-            self.assertIn("/local-vision/api/health", panel)
-            self.assertIn("localVisionInstalled", panel)
-            self.assertIn(
-                "health.service !== 'local-vision-console'",
-                panel)
-            self.assertIn(
-                "window.location.assign('/local-vision/')",
-                panel)
+            self.assertNotIn("/local-vision/", panel)
+            self.assertNotIn("localVision", panel)
+            self.assertNotIn("Local Vision", panel)
             self.assertIn("Dry-Run ein", panel)
             self.assertIn("Live ein", panel)
             self.assertIn("/autopa/api/capture/${action}", panel)
@@ -111,18 +109,39 @@ class MainsailTileTests(unittest.TestCase):
                 "MOTION_DISPLAY_DEADBAND_MM_S2 = 200", panel)
             self.assertIn("this.status?.sensors.alps.state === 'ok'", panel)
             self.assertNotIn("SET_PRESSURE_ADVANCE", panel)
+            self.assertIn("/local-vision/api/health", localvision_panel)
+            self.assertIn("/local-vision/api/config", localvision_panel)
+            self.assertIn(
+                "/local-vision/api/camera/calibration/plan",
+                localvision_panel)
+            self.assertIn(
+                "/local-vision/api/camera/calibration/prepare",
+                localvision_panel)
+            self.assertIn(
+                "/local-vision/api/camera/calibration/run",
+                localvision_panel)
+            self.assertIn(
+                "motionConfirmation: 'HOME_AND_MOVE'",
+                localvision_panel)
+            self.assertIn("window.confirm(", localvision_panel)
+            self.assertIn("G28 ohne Heizen", localvision_panel)
+            self.assertNotIn("PREPARE_HOME", localvision_panel)
+            self.assertNotIn("HEATER", localvision_panel)
             dashboard = (
                 output / "src/pages/Dashboard.vue"
             ).read_text(encoding="utf-8")
             self.assertIn("AutopaPanel", dashboard)
+            self.assertIn("LocalvisionPanel", dashboard)
             variables = (
                 output / "src/store/variables.ts"
             ).read_text(encoding="utf-8")
             self.assertIn("'autopa'", variables)
+            self.assertIn("'localvision'", variables)
             mixin = (
                 output / "src/components/mixins/dashboard.ts"
             ).read_text(encoding="utf-8")
             self.assertIn("name === 'autopa'", mixin)
+            self.assertIn("name === 'localvision'", mixin)
             navigation = (
                 output / "src/components/mixins/navigation.ts"
             ).read_text(encoding="utf-8")
@@ -137,16 +156,25 @@ class MainsailTileTests(unittest.TestCase):
                 (output / "public/autopa-integration.json").read_text(
                     encoding="utf-8"))
             self.assertEqual("autopa", public_manifest["panel"])
-            self.assertEqual(4, public_manifest["format_version"])
+            self.assertEqual(
+                ["autopa", "localvision"],
+                public_manifest["panels"])
+            self.assertEqual(5, public_manifest["format_version"])
             self.assertEqual(
                 "/local-vision/api/health",
-                public_manifest["optional_health"]["local_vision"])
+                public_manifest["local_vision_api"]["health"])
+            self.assertEqual(
+                "/local-vision/api/camera/calibration/run",
+                public_manifest["local_vision_api"]["calibration_run"])
             self.assertEqual(
                 ["/autopa/", "/local-vision/"],
                 public_manifest["navigation_links"])
             self.assertEqual(
                 "passive_capture_and_off_or_dry_run_only",
                 public_manifest["control_policy"])
+            self.assertEqual(
+                "idle_only_checkbox_and_confirmation_g28_without_heating",
+                public_manifest["calibration_policy"])
             self.assertNotIn("source", public_manifest)
             self.assertNotIn("output", public_manifest)
 
