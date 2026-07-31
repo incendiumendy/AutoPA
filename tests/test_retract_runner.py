@@ -117,6 +117,72 @@ class RetractSweepRunnerTest(unittest.TestCase):
         status = runner.status()
         self.assertFalse(status["allowPrinterCommands"])
         self.assertEqual(status["printerAction"], "none")
+        self.assertIsNone(status["lastApply"])
+
+    def test_run_records_auto_apply_and_bound(self):
+        runner, _ = self.make_runner()
+        status = runner.run(run_payload(), printer_status=printer_status())
+        self.assertTrue(status["lastRun"]["autoApply"])
+        self.assertEqual(status["lastRun"]["applyBoundMm"], 1.5)
+        status = runner.run(
+            run_payload(auto_apply=False, apply_bound=0.8),
+            printer_status=printer_status())
+        self.assertFalse(status["lastRun"]["autoApply"])
+        self.assertEqual(status["lastRun"]["applyBoundMm"], 0.8)
+        with self.assertRaises(ValueError):
+            runner.run(
+                run_payload(apply_bound=4.0),
+                printer_status=printer_status())
+
+    def test_apply_within_bound_sends_runtime_command(self):
+        runner, scripts = self.make_runner()
+        runner.run(run_payload(), printer_status=printer_status())
+        runner._printer_status = lambda: printer_status(retract_length=0.5)
+        status = runner.apply_recommendation(1.2, source="ds1")
+        self.assertEqual(scripts[-1], "SET_RETRACTION RETRACT_LENGTH=1.200")
+        apply = status["lastApply"]
+        self.assertTrue(apply["applied"])
+        self.assertTrue(apply["runtimeOnly"])
+        self.assertEqual(apply["previousMm"], 0.5)
+        self.assertEqual(apply["appliedMm"], 1.2)
+        self.assertEqual(apply["boundMm"], 1.5)
+        self.assertEqual(apply["source"], "ds1")
+
+    def test_apply_outside_bound_is_skipped(self):
+        runner, scripts = self.make_runner()
+        runner.run(run_payload(), printer_status=printer_status())
+        runner._printer_status = lambda: printer_status(retract_length=0.5)
+        status = runner.apply_recommendation(3.0, source="ds1")
+        self.assertEqual(len(scripts), 1)
+        apply = status["lastApply"]
+        self.assertFalse(apply["applied"])
+        self.assertEqual(apply["reason"], "outside_bounds")
+        self.assertEqual(apply["printerAction"], "none")
+
+    def test_apply_respects_custom_bound(self):
+        runner, scripts = self.make_runner()
+        runner.run(
+            run_payload(apply_bound=0.3),
+            printer_status=printer_status())
+        runner._printer_status = lambda: printer_status(retract_length=0.5)
+        status = runner.apply_recommendation(1.0)
+        self.assertFalse(status["lastApply"]["applied"])
+        status = runner.apply_recommendation(0.7)
+        self.assertTrue(status["lastApply"]["applied"])
+        self.assertEqual(scripts[-1], "SET_RETRACTION RETRACT_LENGTH=0.700")
+
+    def test_apply_requires_printer_commands(self):
+        runner, _ = self.make_runner(allow=False)
+        with self.assertRaises(PermissionError):
+            runner.apply_recommendation(1.0)
+
+    def test_record_apply_skip(self):
+        runner, _ = self.make_runner()
+        status = runner.record_apply_skip("no_recommendation", source="ds1")
+        apply = status["lastApply"]
+        self.assertFalse(apply["applied"])
+        self.assertEqual(apply["reason"], "no_recommendation")
+        self.assertEqual(apply["printerAction"], "none")
 
 
 if __name__ == "__main__":

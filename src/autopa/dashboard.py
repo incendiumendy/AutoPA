@@ -11,9 +11,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+import threading
+
 from .adaptive import AdaptiveController
+from .analyze import analyze_dataset
 from .capture_manager import CaptureManager
 from .chamber_filter import ChamberFilterController
+from .quality import assess_dataset
+from .retract_analyze import analyze_retract_dataset
 from .retract_runner import RetractSweepRunner
 from .pa_runner import PaSweepRunner
 from .sync_recorder import ACCELEROMETER_ENDPOINTS
@@ -221,7 +226,9 @@ def build_dashboard_status(printer_status, live_status,
 class DashboardData:
     def __init__(self, moonraker_url, live_status_path, controller=None,
                  capture_manager=None, chamber_filter=None,
-                 sweep_runner=None, pa_sweep_runner=None):
+                 sweep_runner=None, pa_sweep_runner=None,
+                 quality_fn=None, retract_analyzer=None, pa_analyzer=None,
+                 sleep_fn=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
@@ -229,6 +236,10 @@ class DashboardData:
         self.chamber_filter = chamber_filter
         self.sweep_runner = sweep_runner
         self.pa_sweep_runner = pa_sweep_runner
+        self.quality_fn = quality_fn or assess_dataset
+        self.retract_analyzer = retract_analyzer or analyze_retract_dataset
+        self.pa_analyzer = pa_analyzer or analyze_dataset
+        self.sleep_fn = sleep_fn or time.sleep
 
     def sweep_status(self):
         return (
@@ -243,7 +254,15 @@ class DashboardData:
     def run_sweep(self, payload):
         if not self.sweep_runner:
             raise RuntimeError("sweep runner disabled")
-        return self.sweep_runner.run(payload)
+        started_capture = self._maybe_start_sweep_capture(
+            payload, "retract-sweep")
+        try:
+            status = self.sweep_runner.run(payload)
+        except Exception:
+            self._stop_started_capture(started_capture, "sweep_rejected")
+            raise
+        self._schedule_post_sweep("retract", started_capture)
+        return status
 
     def pa_sweep_status(self):
         return (
@@ -258,7 +277,110 @@ class DashboardData:
     def run_pa_sweep(self, payload):
         if not self.pa_sweep_runner:
             raise RuntimeError("pa sweep runner disabled")
-        return self.pa_sweep_runner.run(payload)
+        started_capture = self._maybe_start_sweep_capture(
+            payload, "pa-sweep")
+        try:
+            status = self.pa_sweep_runner.run(payload)
+        except Exception:
+            self._stop_started_capture(started_capture, "sweep_rejected")
+            raise
+        self._schedule_post_sweep("pa", started_capture)
+        return status
+
+    def _maybe_start_sweep_capture(self, payload, name):
+        """Auto-start a capture so the sweep can be analyzed afterwards."""
+        if not isinstance(payload, dict):
+            return False
+        if not payload.get("auto_apply", True):
+            return False
+        manager = self.capture_manager
+        if manager is None:
+            return False
+        try:
+            if not manager.status().get("canStart"):
+                return False
+            manager.start("standby", name)
+            return True
+        except Exception:
+            # A failed capture never blocks the confirmed sweep itself.
+            return False
+
+    def _stop_started_capture(self, started_capture, reason):
+        if not started_capture or self.capture_manager is None:
+            return
+        try:
+            self.capture_manager.stop(reason)
+        except Exception:
+            pass
+
+    def _schedule_post_sweep(self, kind, started_capture):
+        runner = (
+            self.sweep_runner if kind == "retract" else self.pa_sweep_runner)
+        last_run = runner.last_run or {}
+        if not last_run.get("autoApply"):
+            if started_capture:
+                self._stop_started_capture(True, "auto_apply_disabled")
+            return
+        duration = last_run.get("estimatedDurationS") or 0.0
+        try:
+            wait = min(max(float(duration), 0.0) + 20.0, 900.0)
+        except (TypeError, ValueError):
+            wait = 900.0
+        thread = threading.Thread(
+            target=self._post_sweep_pipeline,
+            args=(kind, wait, started_capture),
+            name="autopa-post-sweep-%s" % kind,
+            daemon=True)
+        thread.start()
+
+    def _post_sweep_pipeline(self, kind, wait, started_capture):
+        runner = (
+            self.sweep_runner if kind == "retract" else self.pa_sweep_runner)
+        analyzer = (
+            self.retract_analyzer if kind == "retract" else self.pa_analyzer)
+        key = (
+            "retract_length_mm" if kind == "retract" else "pressure_advance")
+        source = None
+        try:
+            self.sleep_fn(wait)
+            dataset_dir = self._finish_sweep_capture(started_capture)
+            if not dataset_dir:
+                runner.record_apply_skip("no_capture_dataset")
+                return
+            source = os.path.basename(dataset_dir)
+            try:
+                self.quality_fn(dataset_dir)
+            except Exception:
+                # A missing quality gate fails the analysis closed.
+                pass
+            result = analyzer(dataset_dir) or {}
+            recommendation = result.get("recommendation")
+            if not recommendation or recommendation.get(key) is None:
+                runner.record_apply_skip("no_recommendation", source=source)
+                return
+            runner.apply_recommendation(recommendation[key], source=source)
+        except Exception:
+            runner.record_apply_skip("analysis_failed", source=source)
+
+    def _finish_sweep_capture(self, started_capture):
+        manager = self.capture_manager
+        if manager is None:
+            return None
+        if started_capture:
+            self._stop_started_capture(True, "sweep_finished")
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if not manager.status().get("active"):
+                    break
+                self.sleep_fn(1.0)
+        status = manager.status()
+        if status.get("active"):
+            return None
+        dataset = status.get("dataset")
+        if not dataset:
+            return None
+        candidate = os.path.join(manager.output_root, dataset)
+        return candidate if os.path.isdir(candidate) else None
 
     def _printer_status(self):
         request = urllib.request.Request(

@@ -113,6 +113,20 @@
                             step="any"
                             inputmode="decimal" />
                     </label>
+                    <label v-if="sweepAutoApply">
+                        <span>{{ labels.sweepApplyBound }} <em>±{{ sweepUnit }}</em></span>
+                        <input
+                            v-model="sweepApplyBound"
+                            type="number"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
+                </div>
+                <div class="autopa-sweeps-autoapply">
+                    <label>
+                        <input v-model="sweepAutoApply" type="checkbox" />
+                        <span>{{ labels.sweepAutoApply }}</span>
+                    </label>
                 </div>
                 <div class="autopa-sweeps-arm">
                     <input
@@ -139,6 +153,12 @@
                 <p v-if="sweepError" class="autopa-sweep-note error">{{ sweepError }}</p>
                 <p v-if="sweepLastRunLabel" class="autopa-sweep-note dim">
                     {{ sweepLastRunLabel }}
+                </p>
+                <p
+                    v-if="sweepApplyLabel"
+                    class="autopa-sweep-note"
+                    :class="sweepApplyApplied ? 'ok' : 'dim'">
+                    {{ sweepApplyLabel }}
                 </p>
             </div>
 
@@ -250,12 +270,33 @@ interface SweepRunInfo {
     restoreRetractMm?: number
     kValues?: number[]
     restoreAdvance?: number
+    autoApply?: boolean
+    applyBoundMm?: number
+    applyBound?: number
+}
+
+interface SweepApplyInfo {
+    applied: boolean
+    runtimeOnly?: boolean
+    reason?: string | null
+    previousMm?: number
+    appliedMm?: number
+    previous?: number
+    appliedValue?: number
+    deviationMm?: number
+    deviation?: number
+    boundMm?: number
+    bound?: number
+    source?: string | null
+    at?: string
+    printerAction?: string
 }
 
 interface SweepStatusInfo {
     allowPrinterCommands: boolean
     lastRun: SweepRunInfo | null
     lastError: string | null
+    lastApply: SweepApplyInfo | null
 }
 
 interface AutoPaStatus {
@@ -325,6 +366,9 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     paParams: SweepParams = { from: '0', to: '0.08', step: '0.01', cycles: '6' }
     sweepTargetZ = '50'
     sweepPrimeE = '5'
+    sweepAutoApply = true
+    retractApplyBound = '1.5'
+    paApplyBound = '0.09'
     sweepPhrase = ''
     sweepBusy = false
     sweepMessage = ''
@@ -390,6 +434,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepLastRun: 'Letzter Lauf',
                   sweepTargetZ: 'Ziel-Z',
                   sweepPrime: 'Prime',
+                  sweepAutoApply: 'Auto-Übernahme',
+                  sweepApplyBound: 'Grenze',
+                  sweepApplyNoRecommendation: 'Keine eindeutige Empfehlung — nichts übernommen.',
+                  sweepApplyNoDataset: 'Kein Messdatensatz — keine Auswertung möglich.',
+                  sweepApplyAnalysisFailed: 'Auswertung fehlgeschlagen — nichts übernommen.',
+                  sweepApplyValuesUnavailable: 'Aktueller Wert nicht lesbar — nichts übernommen.',
                   viewModeAria: 'Ansicht',
                   viewAuto: 'Auto',
                   viewPrint: 'Druck',
@@ -434,6 +484,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepLastRun: 'Last run',
                   sweepTargetZ: 'Target Z',
                   sweepPrime: 'Prime',
+                  sweepAutoApply: 'Auto-apply',
+                  sweepApplyBound: 'Limit',
+                  sweepApplyNoRecommendation: 'No conclusive recommendation — nothing applied.',
+                  sweepApplyNoDataset: 'No capture dataset — analysis not possible.',
+                  sweepApplyAnalysisFailed: 'Analysis failed — nothing applied.',
+                  sweepApplyValuesUnavailable: 'Current value unreadable — nothing applied.',
                   viewModeAria: 'View',
                   viewAuto: 'Auto',
                   viewPrint: 'Print',
@@ -658,6 +714,52 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         return this.sweepKind === 'retract' ? 'mm' : 'K'
     }
 
+    get sweepApplyBound(): string {
+        return this.sweepKind === 'retract' ? this.retractApplyBound : this.paApplyBound
+    }
+
+    set sweepApplyBound(value: string) {
+        if (this.sweepKind === 'retract') this.retractApplyBound = value
+        else this.paApplyBound = value
+    }
+
+    get sweepApplyDigits() {
+        return this.sweepKind === 'retract' ? 2 : 3
+    }
+
+    get sweepApplyInfo(): SweepApplyInfo | null {
+        return this.activeSweep?.lastApply ?? null
+    }
+
+    get sweepApplyApplied() {
+        return this.sweepApplyInfo?.applied === true
+    }
+
+    get sweepApplyLabel() {
+        const apply = this.sweepApplyInfo
+        if (!apply) return ''
+        const digits = this.sweepApplyDigits
+        const isRetract = this.sweepKind === 'retract'
+        if (apply.applied) {
+            const previous = isRetract ? apply.previousMm : apply.previous
+            const applied = isRetract ? apply.appliedMm : apply.appliedValue
+            return this.isGerman
+                ? `Übernommen (Laufzeit): ${this.number(previous, digits)} → ${this.number(applied, digits)} ${this.sweepUnit}`
+                : `Applied (runtime): ${this.number(previous, digits)} → ${this.number(applied, digits)} ${this.sweepUnit}`
+        }
+        if (apply.reason === 'outside_bounds') {
+            const deviation = isRetract ? apply.deviationMm : apply.deviation
+            const bound = isRetract ? apply.boundMm : apply.bound
+            return this.isGerman
+                ? `Nicht übernommen: Abweichung ${this.number(deviation, digits)} > Grenze ${this.number(bound, digits)} ${this.sweepUnit}`
+                : `Not applied: deviation ${this.number(deviation, digits)} > limit ${this.number(bound, digits)} ${this.sweepUnit}`
+        }
+        if (apply.reason === 'no_recommendation') return this.labels.sweepApplyNoRecommendation
+        if (apply.reason === 'no_capture_dataset') return this.labels.sweepApplyNoDataset
+        if (apply.reason === 'values_unavailable') return this.labels.sweepApplyValuesUnavailable
+        return this.labels.sweepApplyAnalysisFailed
+    }
+
     get printState() {
         return this.status?.printer.printState ?? null
     }
@@ -867,6 +969,9 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                 ['start_z', this.sweepTargetZ],
                 ['prime_e', this.sweepPrimeE],
             ]
+            if (this.sweepAutoApply) {
+                optionalFields.push(['apply_bound', this.sweepApplyBound])
+            }
             for (const [key, raw] of optionalFields) {
                 const trimmed = String(raw).trim()
                 if (trimmed === '') continue
@@ -884,6 +989,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                           r_stop: values[1],
                           r_step: values[2],
                           cycles: values[3],
+                          auto_apply: this.sweepAutoApply,
                           ...extras,
                       }
                     : {
@@ -892,6 +998,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                           k_stop: values[1],
                           k_step: values[2],
                           cycles: values[3],
+                          auto_apply: this.sweepAutoApply,
                           ...extras,
                       }
             const url =
@@ -1135,6 +1242,26 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     display: flex;
     gap: 5px;
     margin-top: 6px;
+}
+
+.autopa-sweeps-autoapply {
+    margin-top: 5px;
+}
+
+.autopa-sweeps-autoapply label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    color: var(--v-secondary-lighten2);
+    font-size: 0.62rem;
+}
+
+.autopa-sweeps-autoapply input[type='checkbox'] {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    accent-color: var(--v-primary-base);
 }
 
 .autopa-phrase {

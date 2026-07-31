@@ -202,8 +202,9 @@ def analyze_retract_dataset(dataset_dir):
         "notes": [
             "Experimental residual-pressure estimator for firmware "
             "retraction lengths.",
-            "A recommendation must be confirmed with a stringing test "
-            "print and is never auto-applied.",
+            "The analysis itself never applies anything; the bounded sweep "
+            "runner may apply a recommendation at runtime only, within the "
+            "configured deviation limit, and never persists it.",
             "LIS2DW motion RMS is diagnostic and is not part of the cost.",
             "Missing or implausible data suppresses the recommendation but "
             "never pauses or cancels a print.",

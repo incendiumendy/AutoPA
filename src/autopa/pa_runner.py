@@ -10,6 +10,7 @@ always restores the pressure advance that was active when the run started.
 import time
 
 from .adaptive import ARM_PHRASE
+from .apply_policy import apply_decision, validated_apply_bound
 from .retract_runner import MAX_SCRIPT_LINES, MAX_VALUES, _finite, \
     _moonraker_post
 from .sweep import build_sweep, decimal_range, validated_position
@@ -33,6 +34,7 @@ class PaSweepRunner:
         self._send_script = send_script or self._moonraker_script
         self.last_run = None
         self.last_error = None
+        self.last_apply = None
 
     def _moonraker_script(self, script):
         return _moonraker_post(
@@ -80,6 +82,7 @@ class PaSweepRunner:
             "maxValues": MAX_VALUES,
             "lastRun": self.last_run,
             "lastError": self.last_error,
+            "lastApply": self.last_apply,
             "printerAction": "none",
         }
 
@@ -105,6 +108,9 @@ class PaSweepRunner:
             raise ValueError("Klipper pressure_advance is not available")
 
         values, k_values = self._validated_values(payload)
+        auto_apply = bool(payload.get("auto_apply", True))
+        apply_bound = validated_apply_bound(
+            payload.get("apply_bound"), "pa")
         position = validated_position(
             payload.get("start_x"), payload.get("start_y"),
             payload.get("start_z"), payload.get("prime_e", 0.0))
@@ -129,8 +135,59 @@ class PaSweepRunner:
             "estimatedDurationS": plan["estimated_sweep_duration_s"],
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),
+            "autoApply": auto_apply,
+            "applyBound": apply_bound,
         }
         self.last_error = None
+        return self.status()
+
+    def apply_recommendation(self, recommended, source=None):
+        """Apply a bounded recommendation at runtime; never persisted."""
+        if not self.allow_printer_commands:
+            raise PermissionError("printer commands are server-side locked")
+        bound = validated_apply_bound(
+            (self.last_run or {}).get("applyBound"), "pa")
+        current = (
+            (self._printer_status().get("extruder") or {})
+            .get("pressure_advance"))
+        decision = apply_decision(recommended, current, bound)
+        applied_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if not decision["eligible"]:
+            self.last_apply = {
+                "applied": False,
+                "reason": decision["reason"],
+                "recommended": decision["recommended"],
+                "current": decision["current"],
+                "deviation": decision["deviation"],
+                "bound": decision["bound"],
+                "source": source,
+                "at": applied_at,
+                "printerAction": "none",
+            }
+            return self.status()
+        self._send_script(
+            "SET_PRESSURE_ADVANCE ADVANCE=%.6f" % decision["recommended"])
+        self.last_apply = {
+            "applied": True,
+            "runtimeOnly": True,
+            "previous": decision["current"],
+            "appliedValue": decision["recommended"],
+            "deviation": decision["deviation"],
+            "bound": decision["bound"],
+            "source": source,
+            "at": applied_at,
+            "printerAction": "set_pressure_advance_runtime_only",
+        }
+        return self.status()
+
+    def record_apply_skip(self, reason, source=None):
+        self.last_apply = {
+            "applied": False,
+            "reason": str(reason),
+            "source": source,
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "printerAction": "none",
+        }
         return self.status()
 
     def record_error(self, message):

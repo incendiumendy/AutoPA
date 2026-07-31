@@ -124,6 +124,58 @@ class PaSweepRunnerTest(unittest.TestCase):
         status = runner.status()
         self.assertFalse(status["allowPrinterCommands"])
         self.assertEqual(status["printerAction"], "none")
+        self.assertIsNone(status["lastApply"])
+
+    def test_run_records_auto_apply_and_bound(self):
+        runner, _ = self.make_runner()
+        status = runner.run(run_payload(), printer_status=printer_status())
+        self.assertTrue(status["lastRun"]["autoApply"])
+        self.assertEqual(status["lastRun"]["applyBound"], 0.09)
+        status = runner.run(
+            run_payload(auto_apply=False, apply_bound=0.02),
+            printer_status=printer_status())
+        self.assertFalse(status["lastRun"]["autoApply"])
+        self.assertEqual(status["lastRun"]["applyBound"], 0.02)
+        with self.assertRaises(ValueError):
+            runner.run(
+                run_payload(apply_bound=0.5),
+                printer_status=printer_status())
+
+    def test_apply_within_bound_sends_runtime_command(self):
+        runner, scripts = self.make_runner()
+        runner.run(run_payload(), printer_status=printer_status())
+        runner._printer_status = lambda: printer_status(pressure_advance=0.04)
+        status = runner.apply_recommendation(0.07, source="ds1")
+        self.assertEqual(scripts[-1], "SET_PRESSURE_ADVANCE ADVANCE=0.070000")
+        apply = status["lastApply"]
+        self.assertTrue(apply["applied"])
+        self.assertTrue(apply["runtimeOnly"])
+        self.assertEqual(apply["previous"], 0.04)
+        self.assertEqual(apply["appliedValue"], 0.07)
+        self.assertEqual(apply["bound"], 0.09)
+
+    def test_apply_outside_bound_is_skipped(self):
+        runner, scripts = self.make_runner()
+        runner.run(run_payload(), printer_status=printer_status())
+        runner._printer_status = lambda: printer_status(pressure_advance=0.04)
+        status = runner.apply_recommendation(0.18, source="ds1")
+        self.assertEqual(len(scripts), 1)
+        apply = status["lastApply"]
+        self.assertFalse(apply["applied"])
+        self.assertEqual(apply["reason"], "outside_bounds")
+        self.assertEqual(apply["printerAction"], "none")
+
+    def test_apply_requires_printer_commands(self):
+        runner, _ = self.make_runner(allow=False)
+        with self.assertRaises(PermissionError):
+            runner.apply_recommendation(0.06)
+
+    def test_record_apply_skip(self):
+        runner, _ = self.make_runner()
+        status = runner.record_apply_skip("no_capture_dataset")
+        self.assertFalse(status["lastApply"]["applied"])
+        self.assertEqual(
+            status["lastApply"]["reason"], "no_capture_dataset")
 
 
 if __name__ == "__main__":

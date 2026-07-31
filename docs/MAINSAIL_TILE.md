@@ -60,6 +60,15 @@ ist nicht zwingend nötig: Jede Stelle, an der der Strang frei abfallen kann,
 ohne die Düse wieder zu erreichen, ist geeignet (etwa eine Schale am
 Gestellprofil oder eine freie Fallzone neben dem Bett).
 
+Ist **Auto-Übernahme** aktiv (Standard), nimmt der Dienst den Sweep
+automatisch auf, wertet ihn aus und übernimmt die Empfehlung **nur zur
+Laufzeit**, wenn sie innerhalb der einstellbaren **Grenze** liegt
+(Rückzug ±1,5 mm, PA ±0,09; hart begrenzt auf ±3,0 mm bzw. ±0,2). Der
+übernommene Wert wird niemals gespeichert — kein `SAVE_CONFIG`, kein
+Klipper-Neustart — und kann bei Gefallen manuell in Mainsail gesichert
+werden. Liegt die Empfehlung außerhalb der Grenze oder ist die Auswertung
+uneindeutig, zeigt die Kachel den Grund an und der Drucker bleibt unverändert.
+
 Das Düsendruck-Fenster zeigt den geglätteten relativen Düsendruck als
 vertikalen Balken mit Nullpunkt in der Mitte (Druck nach oben, Zug nach
 unten) und dem Prozentwert daneben. Die Anzeige nutzt einen exponentiellen
@@ -170,6 +179,15 @@ well away from the tip — and prime a few millimetres at temperature so the
 first cycle measures stable pressure. A purge container is not required: any
 spot where the strand falls away freely without reaching the nozzle again is
 fine, such as a tray clipped to the frame or a free drop zone beside the bed.
+
+With **Auto-apply** enabled (the default), the service automatically captures
+the sweep, analyzes it, and applies the recommendation **at runtime only**
+when it stays within the adjustable **limit** (retraction ±1.5 mm, PA ±0.09;
+hard-capped at ±3.0 mm and ±0.2). The applied value is never persisted — no
+`SAVE_CONFIG`, no Klipper restart — and can be saved manually in Mainsail
+once you are happy with it. If the recommendation exceeds the limit or the
+analysis is inconclusive, the tile shows the reason and the printer stays
+unchanged.
 
 The pressure cell shows the smoothed relative nozzle load as a vertical bar
 centered on zero (load up, tension down) with the percentage beside it. An

@@ -7,7 +7,8 @@
 - überwachter Firmware-Rückzugs-Sweep (`retract_sweep`) mit markierten
   `G10`/Wartezeit/`G11`-Zyklen, Pflicht-`--restore-retract` und
   fail-closed-Auswertung (`retract_analyze`) nach Restdüsendruck und
-  Wiederanfahrverhalten; Empfehlung wird niemals automatisch übernommen.
+  Wiederanfahrverhalten; das Auswertungs-Artefakt verändert den Drucker
+  grundsätzlich nie selbst.
 
 - Rückzugs-Sweep direkt aus dem Dashboard (Karte „Rückzugs-Sweep"): sendet
   den begrenzten Sweep per Moonraker an den Drucker, ganz ohne G-Code-Datei;
@@ -33,6 +34,14 @@
   die API; Ziel-Z hebt die Düse vor der Extrusion sicher an, sodass kein
   Auffangbehälter nötig ist — eine freie Fallzone genügt, eine einfache
   Auffangschale wird trotzdem empfohlen.
+
+- begrenzte Auto-Übernahme der Sweep-Empfehlungen: Der Dienst nimmt den
+  Sweep automatisch auf, wertet ihn aus und übernimmt den empfohlenen Wert
+  nur zur Laufzeit (`SET_RETRACTION`/`SET_PRESSURE_ADVANCE`, niemals
+  `SAVE_CONFIG`), wenn er innerhalb der einstellbaren Grenze liegt
+  (Rückzug ±1,5 mm, PA ±0,09; hart begrenzt auf ±3,0 mm bzw. ±0,2); bei
+  eindeutiger Auswertung, andernfalls wird der Grund in der Kachel gezeigt
+  und nichts verändert.
 
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
@@ -63,8 +72,8 @@
 - supervised firmware-retraction sweep (`retract_sweep`) with marked
   `G10`/dwell/`G11` cycles, mandatory `--restore-retract` and
   fail-closed analysis (`retract_analyze`) ranking residual nozzle
-  pressure and restart behavior; the recommendation is never
-  auto-applied.
+  pressure and restart behavior; the analysis artifact itself never
+  modifies the printer.
 
 - dashboard-driven retraction sweep ("Rückzugs-Sweep" card): sends the
   bounded sweep through Moonraker without any G-code file; requires the
@@ -90,6 +99,13 @@
   the API; target Z safely raises the nozzle before extrusion, so no purge
   bin is required — a clear drop zone is sufficient, though a simple catch
   tray is still recommended.
+
+- bounded auto-apply of sweep recommendations: the service automatically
+  captures the sweep, analyzes it, and applies the recommended value at
+  runtime only (`SET_RETRACTION`/`SET_PRESSURE_ADVANCE`, never
+  `SAVE_CONFIG`) when it stays within the configurable limit (retraction
+  ±1.5 mm, PA ±0.09; hard-capped at ±3.0 mm and ±0.2); only on a conclusive
+  analysis — otherwise the tile shows the reason and nothing changes.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

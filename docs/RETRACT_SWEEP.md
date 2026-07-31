@@ -114,10 +114,30 @@ eligible lengths and averaged into one cost; the lowest cost wins.
 
 The recommendation is suppressed (fail-closed) when the quality gate of the
 dataset did not pass, markers are missing or implausible, or too few cycles
-are usable. It always sets `apply_automatically` to `false` and
-`printer_action` to `none`.
+are usable. The analysis artifact itself always sets `apply_automatically`
+to `false` and `printer_action` to `none` — it never touches the printer.
 
-## Adopting a value
+## Bounded auto-apply
+
+When a sweep is started from the dashboard or the Mainsail tile with
+auto-apply enabled (the default), the service automatically captures the
+sweep, runs the quality gate and the analysis, and applies the
+recommendation **at runtime only** when it stays within the deviation limit:
+
+| Sweep | Runtime command | Default limit | Hard cap |
+| --- | --- | --- | --- |
+| Retraction | `SET_RETRACTION RETRACT_LENGTH=<value>` | ±1.5 mm | ±3.0 mm |
+| Pressure advance | `SET_PRESSURE_ADVANCE ADVANCE=<value>` | ±0.09 | ±0.2 |
+
+The limit is configurable per run (`apply_bound`, tile field „Grenze" /
+"Limit"). An apply happens only when the analysis produced a conclusive
+recommendation; otherwise the runner records the skip reason
+(`no_capture_dataset`, `no_recommendation`, `outside_bounds`,
+`values_unavailable`, `analysis_failed`) in `lastApply` of the sweep status.
+The applied value is **never persisted** — no `SAVE_CONFIG`, no Klipper
+restart. Save it manually in Mainsail when you are happy with it.
+
+## Adopting a value manually
 
 Apply the suggested length manually, for example:
 
