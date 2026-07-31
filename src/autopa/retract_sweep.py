@@ -10,7 +10,7 @@ import json
 import math
 import os
 
-from .sweep import decimal_range
+from .sweep import build_position_preamble, decimal_range
 
 
 MAX_RETRACT_MM = 10.0
@@ -19,7 +19,9 @@ MAX_RETRACT_MM = 10.0
 def build_retract_sweep(retract_values, cycles, e_speed=1.5,
                         extrude_duration=1.2, settle_s=1.0, x_travel=8.0,
                         retract_speed=35.0, restore_retract=None, min_z=10.0,
-                        target_temperature=None, temperature_tolerance=2.0):
+                        target_temperature=None, temperature_tolerance=2.0,
+                        start_x=None, start_y=None, start_z=None,
+                        prime_e=0.0):
     if not retract_values:
         raise ValueError("At least one retract length is required")
     if any(value < 0.0 or value > MAX_RETRACT_MM for value in retract_values):
@@ -71,9 +73,11 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "SAVE_GCODE_STATE NAME=AUTOPA_RETRACT",
         "M83",
         "G91",
-        "AUTOPA_MARK EVENT=retract_sweep_start VALUE=%.4f"
-        % retract_values[0],
     ]
+    lines.extend(build_position_preamble(start_x, start_y, start_z, prime_e))
+    lines.append(
+        "AUTOPA_MARK EVENT=retract_sweep_start VALUE=%.4f"
+        % retract_values[0])
     segments = []
     offset = 0.0
     for r_index, r_value in enumerate(retract_values):
@@ -129,9 +133,14 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "minimum_z_mm": min_z,
         "target_temperature_c": target_temperature,
         "temperature_tolerance_c": temperature_tolerance,
+        "start_x_mm": start_x,
+        "start_y_mm": start_y,
+        "start_z_mm": start_z,
+        "prime_e_mm": prime_e,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
-            len(retract_values) * cycles * 2.0 * extrude_e),
+            len(retract_values) * cycles * 2.0 * extrude_e
+            + (prime_e or 0.0)),
         "segments": segments,
         "notes": [
             "Retract and unretract move durations assume the configured "
@@ -162,13 +171,18 @@ def main():
     parser.add_argument("--restore-retract", type=float, required=True)
     parser.add_argument("--target-temperature", type=float)
     parser.add_argument("--temperature-tolerance", type=float, default=2.0)
+    parser.add_argument("--start-x", type=float)
+    parser.add_argument("--start-y", type=float)
+    parser.add_argument("--start-z", type=float)
+    parser.add_argument("--prime-e", type=float, default=0.0)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     gcode, plan = build_retract_sweep(
         decimal_range(args.r_start, args.r_stop, args.r_step),
         args.cycles, args.e_speed, args.extrude_duration, args.settle_s,
         args.x_travel, args.retract_speed, args.restore_retract, args.min_z,
-        args.target_temperature, args.temperature_tolerance)
+        args.target_temperature, args.temperature_tolerance,
+        args.start_x, args.start_y, args.start_z, args.prime_e)
     output = os.path.abspath(args.output)
     with open(output, "w") as handle:
         handle.write(gcode)

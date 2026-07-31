@@ -97,6 +97,28 @@ class PaSweepRunnerTest(unittest.TestCase):
                     printer_status=printer_status())
         self.assertEqual(scripts, [])
 
+    def test_position_and_prime_are_embedded_and_bounded(self):
+        runner, scripts = self.make_runner()
+        status = runner.run(
+            run_payload(start_z=50.0, prime_e=4.0),
+            printer_status=printer_status())
+        script = scripts[0]
+        self.assertIn("G1 Z50.0000 F600", script)
+        self.assertIn("G1 E4.00000 F300", script)
+        self.assertEqual(status["lastRun"]["startZMm"], 50.0)
+        self.assertEqual(status["lastRun"]["primeEMm"], 4.0)
+        for overrides in (
+                {"start_z": 5.0},
+                {"start_z": 400.0},
+                {"prime_e": 25.0},
+                {"start_x": -1.0},
+                {"start_y": 600.0}):
+            with self.assertRaises(ValueError):
+                runner.run(
+                    run_payload(**overrides),
+                    printer_status=printer_status())
+        self.assertEqual(len(scripts), 1)
+
     def test_disabled_runner_status_shape(self):
         runner, _ = self.make_runner(allow=False)
         status = runner.status()

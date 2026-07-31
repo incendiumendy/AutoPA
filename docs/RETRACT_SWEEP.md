@@ -15,7 +15,25 @@ never applied automatically.
 - Klipper `[firmware_retraction]` configured and working (`G10`/`G11`);
 - the AutoPA Klipper extension (`AUTOPA_VALIDATE`, `AUTOPA_MARK`);
 - a running synchronized AutoPA recording that covers the whole sweep;
-- the nozzle in free air with a purge container, as for the PA sweep.
+- the nozzle in free air above a catch tray or a safe free-drop zone — a
+  purge container is convenient but not required; any spot where the
+  extruded strand can fall away without ever reaching the nozzle works.
+
+## Test position and prime
+
+Both sweeps accept an optional bounded start position and a pressure prime,
+in the generator (`--start-x/--start-y/--start-z/--prime-e`) and in the
+dashboard/tile payloads (`start_x`, `start_y`, `start_z`, `prime_e`):
+
+- `start_z` (10–300 mm) raises the nozzle before anything is extruded; 50 mm
+  keeps the filament pile far from the tip even without a container.
+- `start_x`/`start_y` (0–500 mm) move to a chosen spot, for example above a
+  catch tray clipped to the frame or over the bed edge.
+- `prime_e` (0–20 mm) extrudes a few millimetres at print temperature so the
+  first cycle measures stable pressure instead of refill.
+
+Bounds are enforced again server-side; Klipper additionally rejects any move
+outside the axis limits.
 
 ## Generate the sweep
 

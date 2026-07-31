@@ -123,6 +123,9 @@ class MainsailTileTests(unittest.TestCase):
             self.assertIn("effectiveView", panel)
             self.assertIn("pressureSmoothed", panel)
             self.assertIn("PRESSURE_SMOOTHING_ALPHA", panel)
+            self.assertIn("sweepTargetZ", panel)
+            self.assertIn("start_z", panel)
+            self.assertIn("prime_e", panel)
             self.assertIn("/local-vision/api/health", localvision_panel)
             self.assertIn("/local-vision/api/config", localvision_panel)
             self.assertIn(

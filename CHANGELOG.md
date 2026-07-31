@@ -27,6 +27,13 @@
   gegen Sensorrauschen im Leerlauf; Ansichts-Dropdown im Kachelkopf
   (`Auto`/`Druck`/`Test`) für druck- bzw. testorientierte Darstellung.
 
+- begrenzte Testposition und Druck-Prime für beide Kalibrier-Sweeps
+  (`start_x`/`start_y` 0–500 mm, `start_z` 10–300 mm, `prime_e` 0–20 mm),
+  einstellbar in der Mainsail-Kachel (Felder „Ziel-Z" und „Prime") und über
+  die API; Ziel-Z hebt die Düse vor der Extrusion sicher an, sodass kein
+  Auffangbehälter nötig ist — eine freie Fallzone genügt, eine einfache
+  Auffangschale wird trotzdem empfohlen.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -76,6 +83,13 @@
   percentage readout, smoothed by an exponential moving average against idle
   sensor noise; view dropdown in the tile header (`Auto`/`Print`/`Test`) for
   print- or test-focused layouts.
+
+- bounded test position and print prime for both calibration sweeps
+  (`start_x`/`start_y` 0–500 mm, `start_z` 10–300 mm, `prime_e` 0–20 mm),
+  configurable in the Mainsail tile ("target Z" and "prime" fields) and via
+  the API; target Z safely raises the nozzle before extrusion, so no purge
+  bin is required — a clear drop zone is sufficient, though a simple catch
+  tray is still recommended.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

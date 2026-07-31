@@ -14,10 +14,68 @@ def decimal_range(start, stop, step):
     return [round(start + index * step, 10) for index in range(count)]
 
 
+POSITION_BOUNDS = {
+    "start_x": (0.0, 500.0),
+    "start_y": (0.0, 500.0),
+    "start_z": (10.0, 300.0),
+    "prime_e": (0.0, 20.0),
+}
+
+
+def validated_position(start_x=None, start_y=None, start_z=None,
+                       prime_e=0.0):
+    values = {
+        "start_x": start_x,
+        "start_y": start_y,
+        "start_z": start_z,
+        "prime_e": prime_e,
+    }
+    checked = {}
+    for key, value in values.items():
+        if value is None:
+            checked[key] = None
+            continue
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError("%s must be a finite number" % key)
+        low, high = POSITION_BOUNDS[key]
+        if not low <= value <= high:
+            raise ValueError(
+                "%s must be between %s and %s" % (key, low, high))
+        checked[key] = float(value)
+    return checked
+
+
+def build_position_preamble(start_x=None, start_y=None, start_z=None,
+                            prime_e=0.0):
+    """Optional bounded absolute positioning plus a short pressure prime.
+
+    Works on printers without a purge container: the caller picks any safe
+    spot (catch tray, free drop zone) and the sweep raises Z first so the
+    extruded strand can never reach the nozzle again.
+    """
+    pos = validated_position(start_x, start_y, start_z, prime_e)
+    lines = []
+    if pos["start_z"] is not None:
+        lines.append("G90")
+        lines.append("G1 Z%.4f F600" % pos["start_z"])
+        lines.append("G91")
+    if pos["start_x"] is not None or pos["start_y"] is not None:
+        x_part = " X%.4f" % pos["start_x"] if pos["start_x"] is not None else ""
+        y_part = " Y%.4f" % pos["start_y"] if pos["start_y"] is not None else ""
+        lines.append("G90")
+        lines.append("G1%s%s F6000" % (x_part, y_part))
+        lines.append("G91")
+    if pos["prime_e"]:
+        lines.append("G1 E%.5f F300" % pos["prime_e"])
+        lines.append("G4 P500")
+    return lines
+
+
 def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
                 slow_duration=1.0, fast_duration=0.25, x_travel=8.0,
                 restore_advance=None, min_z=10.0,
-                target_temperature=None, temperature_tolerance=2.0):
+                target_temperature=None, temperature_tolerance=2.0,
+                start_x=None, start_y=None, start_z=None, prime_e=0.0):
     if not k_values:
         raise ValueError("At least one pressure advance value is required")
     if any(value < 0.0 or value > 0.2 for value in k_values):
@@ -63,8 +121,9 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "SAVE_GCODE_STATE NAME=AUTOPA_SWEEP",
         "M83",
         "G91",
-        "AUTOPA_MARK EVENT=sweep_start VALUE=%.6f" % k_values[0],
     ]
+    lines.extend(build_position_preamble(start_x, start_y, start_z, prime_e))
+    lines.append("AUTOPA_MARK EVENT=sweep_start VALUE=%.6f" % k_values[0])
     segments = []
     offset = 0.0
     for k_index, k_value in enumerate(k_values):
@@ -114,8 +173,13 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "minimum_z_mm": min_z,
         "target_temperature_c": target_temperature,
         "temperature_tolerance_c": temperature_tolerance,
+        "start_x_mm": start_x,
+        "start_y_mm": start_y,
+        "start_z_mm": start_z,
+        "prime_e_mm": prime_e,
         "estimated_sweep_duration_s": offset,
-        "filament_length_mm": len(k_values) * cycles * (slow_e + fast_e),
+        "filament_length_mm": (
+            len(k_values) * cycles * (slow_e + fast_e) + (prime_e or 0.0)),
         "segments": segments,
     }
     return "\n".join(lines) + "\n", plan
@@ -137,6 +201,10 @@ def main():
     parser.add_argument("--restore-advance", type=float, required=True)
     parser.add_argument("--target-temperature", type=float)
     parser.add_argument("--temperature-tolerance", type=float, default=2.0)
+    parser.add_argument("--start-x", type=float)
+    parser.add_argument("--start-y", type=float)
+    parser.add_argument("--start-z", type=float)
+    parser.add_argument("--prime-e", type=float, default=0.0)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     gcode, plan = build_sweep(
@@ -144,7 +212,8 @@ def main():
         args.cycles, args.slow_e_speed, args.fast_e_speed,
         args.slow_duration, args.fast_duration, args.x_travel,
         args.restore_advance, args.min_z,
-        args.target_temperature, args.temperature_tolerance)
+        args.target_temperature, args.temperature_tolerance,
+        args.start_x, args.start_y, args.start_z, args.prime_e)
     output = os.path.abspath(args.output)
     with open(output, "w") as handle:
         handle.write(gcode)

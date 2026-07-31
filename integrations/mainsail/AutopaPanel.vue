@@ -93,6 +93,26 @@
                             step="1"
                             inputmode="numeric" />
                     </label>
+                    <label>
+                        <span>{{ labels.sweepTargetZ }} <em>mm</em></span>
+                        <input
+                            v-model="sweepTargetZ"
+                            type="number"
+                            min="10"
+                            max="300"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
+                    <label>
+                        <span>{{ labels.sweepPrime }} <em>mm E</em></span>
+                        <input
+                            v-model="sweepPrimeE"
+                            type="number"
+                            min="0"
+                            max="20"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
                 </div>
                 <div class="autopa-sweeps-arm">
                     <input
@@ -303,6 +323,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     sweepKind: 'retract' | 'pa' = 'pa'
     retractParams: SweepParams = { from: '0.2', to: '1.4', step: '0.2', cycles: '5' }
     paParams: SweepParams = { from: '0', to: '0.08', step: '0.01', cycles: '6' }
+    sweepTargetZ = '50'
+    sweepPrimeE = '5'
     sweepPhrase = ''
     sweepBusy = false
     sweepMessage = ''
@@ -366,6 +388,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepSent: 'Sweep an den Drucker gesendet.',
                   sweepInvalid: 'Bitte gültige Zahlen eingeben.',
                   sweepLastRun: 'Letzter Lauf',
+                  sweepTargetZ: 'Ziel-Z',
+                  sweepPrime: 'Prime',
                   viewModeAria: 'Ansicht',
                   viewAuto: 'Auto',
                   viewPrint: 'Druck',
@@ -408,6 +432,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepSent: 'Sweep sent to the printer.',
                   sweepInvalid: 'Please enter valid numbers.',
                   sweepLastRun: 'Last run',
+                  sweepTargetZ: 'Target Z',
+                  sweepPrime: 'Prime',
                   viewModeAria: 'View',
                   viewAuto: 'Auto',
                   viewPrint: 'Print',
@@ -836,6 +862,20 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             if (values.some((value) => !Number.isFinite(value))) {
                 throw new Error(this.labels.sweepInvalid)
             }
+            const extras: Record<string, number> = {}
+            const optionalFields: [string, string][] = [
+                ['start_z', this.sweepTargetZ],
+                ['prime_e', this.sweepPrimeE],
+            ]
+            for (const [key, raw] of optionalFields) {
+                const trimmed = String(raw).trim()
+                if (trimmed === '') continue
+                const parsed = Number(trimmed.replace(',', '.'))
+                if (!Number.isFinite(parsed)) {
+                    throw new Error(this.labels.sweepInvalid)
+                }
+                extras[key] = parsed
+            }
             const payload =
                 this.sweepKind === 'retract'
                     ? {
@@ -844,6 +884,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                           r_stop: values[1],
                           r_step: values[2],
                           cycles: values[3],
+                          ...extras,
                       }
                     : {
                           phrase: this.sweepPhrase,
@@ -851,6 +892,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                           k_stop: values[1],
                           k_step: values[2],
                           cycles: values[3],
+                          ...extras,
                       }
             const url =
                 this.sweepKind === 'retract'

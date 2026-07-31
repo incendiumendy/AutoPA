@@ -12,7 +12,7 @@ import time
 from .adaptive import ARM_PHRASE
 from .retract_runner import MAX_SCRIPT_LINES, MAX_VALUES, _finite, \
     _moonraker_post
-from .sweep import build_sweep, decimal_range
+from .sweep import build_sweep, decimal_range, validated_position
 
 
 RUN_BOUNDS = {
@@ -105,9 +105,14 @@ class PaSweepRunner:
             raise ValueError("Klipper pressure_advance is not available")
 
         values, k_values = self._validated_values(payload)
+        position = validated_position(
+            payload.get("start_x"), payload.get("start_y"),
+            payload.get("start_z"), payload.get("prime_e", 0.0))
         gcode, plan = build_sweep(
             k_values, values["cycles"],
-            restore_advance=float(restore_advance))
+            restore_advance=float(restore_advance),
+            start_x=position["start_x"], start_y=position["start_y"],
+            start_z=position["start_z"], prime_e=position["prime_e"])
         lines = gcode.splitlines()
         if len(lines) > MAX_SCRIPT_LINES:
             raise ValueError("generated sweep is unexpectedly large")
@@ -119,6 +124,8 @@ class PaSweepRunner:
             "kValues": k_values,
             "cycles": values["cycles"],
             "restoreAdvance": float(restore_advance),
+            "startZMm": position["start_z"],
+            "primeEMm": position["prime_e"],
             "estimatedDurationS": plan["estimated_sweep_duration_s"],
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),

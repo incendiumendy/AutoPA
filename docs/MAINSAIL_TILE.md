@@ -52,6 +52,14 @@ Opt-in-Flag; während eines Drucks ist der Block sichtbar gesperrt und der
 Server lehnt zusätzlich ab. Der zum Laufbeginn aktive Rückzugs- bzw. PA-Wert
 wird am Ende automatisch wiederhergestellt.
 
+Über die Felder **Ziel-Z** (10–300 mm) und **Prime** (0–20 mm E) hebt der
+Sweep die Düse vor dem Start auf eine sichere Höhe — 50 mm halten den
+Filamenthaufen zuverlässig von der Spitze fern — und extrudiert kurz bei
+Temperatur, damit der erste Zyklus stabilen Druck misst. Ein Auffangbehälter
+ist nicht zwingend nötig: Jede Stelle, an der der Strang frei abfallen kann,
+ohne die Düse wieder zu erreichen, ist geeignet (etwa eine Schale am
+Gestellprofil oder eine freie Fallzone neben dem Bett).
+
 Das Düsendruck-Fenster zeigt den geglätteten relativen Düsendruck als
 vertikalen Balken mit Nullpunkt in der Mitte (Druck nach oben, Zug nach
 unten) und dem Prozentwert daneben. Die Anzeige nutzt einen exponentiellen
@@ -155,6 +163,13 @@ G-code file. They require the confirmation phrase, the printer state `standby`
 and the server-side opt-in flag; during a print the block is visibly locked and
 the server refuses as well. The retraction or PA value active at run start is
 restored automatically at the end.
+
+The **Target Z** (10–300 mm) and **Prime** (0–20 mm E) fields lift the nozzle
+to a safe height before anything is extruded — 50 mm keeps the filament pile
+well away from the tip — and prime a few millimetres at temperature so the
+first cycle measures stable pressure. A purge container is not required: any
+spot where the strand falls away freely without reaching the nozzle again is
+fine, such as a tray clipped to the frame or a free drop zone beside the bed.
 
 The pressure cell shows the smoothed relative nozzle load as a vertical bar
 centered on zero (load up, tension down) with the percentage beside it. An

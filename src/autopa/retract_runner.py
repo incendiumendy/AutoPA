@@ -16,7 +16,7 @@ import json
 
 from .adaptive import ARM_PHRASE
 from .retract_sweep import MAX_RETRACT_MM, build_retract_sweep
-from .sweep import decimal_range
+from .sweep import decimal_range, validated_position
 
 
 RUN_BOUNDS = {
@@ -125,10 +125,15 @@ class RetractSweepRunner:
             retract_speed = 35.0
 
         values, retract_values = self._validated_values(payload)
+        position = validated_position(
+            payload.get("start_x"), payload.get("start_y"),
+            payload.get("start_z"), payload.get("prime_e", 0.0))
         gcode, plan = build_retract_sweep(
             retract_values, values["cycles"],
             retract_speed=float(retract_speed),
-            restore_retract=float(restore_retract))
+            restore_retract=float(restore_retract),
+            start_x=position["start_x"], start_y=position["start_y"],
+            start_z=position["start_z"], prime_e=position["prime_e"])
         lines = gcode.splitlines()
         if len(lines) > MAX_SCRIPT_LINES:
             raise ValueError("generated sweep is unexpectedly large")
@@ -140,6 +145,8 @@ class RetractSweepRunner:
             "retractValues": retract_values,
             "cycles": values["cycles"],
             "restoreRetractMm": float(restore_retract),
+            "startZMm": position["start_z"],
+            "primeEMm": position["prime_e"],
             "estimatedDurationS": plan["estimated_sweep_duration_s"],
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),
