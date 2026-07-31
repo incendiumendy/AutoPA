@@ -4,6 +4,29 @@
 
 ### Deutsch
 
+- überwachter Firmware-Rückzugs-Sweep (`retract_sweep`) mit markierten
+  `G10`/Wartezeit/`G11`-Zyklen, Pflicht-`--restore-retract` und
+  fail-closed-Auswertung (`retract_analyze`) nach Restdüsendruck und
+  Wiederanfahrverhalten; Empfehlung wird niemals automatisch übernommen.
+
+- Rückzugs-Sweep direkt aus dem Dashboard (Karte „Rückzugs-Sweep"): sendet
+  den begrenzten Sweep per Moonraker an den Drucker, ganz ohne G-Code-Datei;
+  erfordert die Bestätigungsphrase, den Druckerzustand `standby` und das
+  Opt-in-Flag `AUTOPA_ALLOW_PRINTER_COMMANDS=1`; der Restore-Wert wird
+  automatisch aus `firmware_retraction.retract_length` gelesen.
+
+- Test-Sweep-Block in der nativen Mainsail-Kachel: Firmware-Rückzug (mm) und
+  Pressure Advance (K) direkt aus der Kachel senden; neuer `pa_runner` mit
+  den Endpunkten `/api/pa-sweep` und `/api/pa-sweep/run` nach denselben
+  Sicherheitsregeln (Phrase, `standby`, Opt-in-Flag, automatische
+  Wiederherstellung des aktiven Werts); sichtbare Sperre während eines Drucks
+  in Kachel und Dashboard.
+
+- Düsendruck-Fenster der Mainsail-Kachel als vertikaler Balken mit
+  Nullpunkt-Mitte und Prozentwert, geglättet per exponentiellem Mittelwert
+  gegen Sensorrauschen im Leerlauf; Ansichts-Dropdown im Kachelkopf
+  (`Auto`/`Druck`/`Test`) für druck- bzw. testorientierte Darstellung.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -29,6 +52,30 @@
   Wiederherstellung nach einem Dienstneustart.
 
 ### English
+
+- supervised firmware-retraction sweep (`retract_sweep`) with marked
+  `G10`/dwell/`G11` cycles, mandatory `--restore-retract` and
+  fail-closed analysis (`retract_analyze`) ranking residual nozzle
+  pressure and restart behavior; the recommendation is never
+  auto-applied.
+
+- dashboard-driven retraction sweep ("Rückzugs-Sweep" card): sends the
+  bounded sweep through Moonraker without any G-code file; requires the
+  confirmation phrase, the printer state `standby` and the opt-in flag
+  `AUTOPA_ALLOW_PRINTER_COMMANDS=1`; the restore value is read
+  automatically from `firmware_retraction.retract_length`.
+
+- test-sweep block in the native Mainsail tile: send firmware-retraction (mm)
+  and pressure-advance (K) sweeps directly from the tile; new `pa_runner`
+  with `/api/pa-sweep` and `/api/pa-sweep/run` endpoints under the same
+  safety rules (phrase, `standby`, opt-in flag, automatic restore of the
+  active value); visible lock during a print in both the tile and the
+  dashboard.
+
+- pressure cell of the Mainsail tile as a vertical zero-centered bar with
+  percentage readout, smoothed by an exponential moving average against idle
+  sensor noise; view dropdown in the tile header (`Auto`/`Print`/`Test`) for
+  print- or test-focused layouts.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

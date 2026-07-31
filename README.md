@@ -266,6 +266,26 @@ Before any sweep:
 `AUTOPA_VALIDATE` rejects the file if axes are not homed, Z is too low, the +X
 move would exceed the axis limit, or the hotend is too cold.
 
+## Generate a supervised retraction sweep
+
+`retract_sweep` varies Klipper `[firmware_retraction]` lengths through marked
+`G10`/dwell/`G11` cycles and `retract_analyze` ranks them by residual nozzle
+pressure and restart behavior. The current retraction length is mandatory as
+`--restore-retract`, so the file restores it at the end:
+
+```sh
+PYTHONPATH=src python3 -m autopa.retract_sweep \r
+  --r-start 0.2 \r
+  --r-stop 1.4 \r
+  --r-step 0.2 \r
+  --cycles 5 \r
+  --restore-retract 0.8 \r
+  --output autopa-retract-smoke.gcode
+```
+
+The recommendation is fail-closed, experimental and never auto-applied.
+See [supervised firmware-retraction sweep](docs/RETRACT_SWEEP.md).
+
 ## Project boundaries
 
 - Normal printing is fail-open: recording or sensor failures never pause,

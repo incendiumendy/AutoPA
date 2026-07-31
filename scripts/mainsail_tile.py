@@ -199,6 +199,10 @@ def prepare_mainsail_source(
             "calibration_prepare": (
                 "/local-vision/api/camera/calibration/prepare"),
             "calibration_run": "/local-vision/api/camera/calibration/run",
+            "spaghetti_status": "/local-vision/api/spaghetti/status",
+            "spaghetti_prepare": "/local-vision/api/spaghetti/prepare",
+            "spaghetti_analyze": "/local-vision/api/spaghetti/analyze",
+            "spaghetti_cancel": "/local-vision/api/spaghetti/cancel",
         },
         "navigation_links": [
             "/autopa/",

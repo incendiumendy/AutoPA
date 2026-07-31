@@ -6,6 +6,15 @@
         card-class="autopa-panel"
         :loading="busy">
         <template #buttons>
+            <select
+                v-model="viewMode"
+                class="autopa-view-select"
+                :aria-label="labels.viewModeAria"
+                @click.stop>
+                <option value="auto">{{ labels.viewAuto }}</option>
+                <option value="print">{{ labels.viewPrint }}</option>
+                <option value="test">{{ labels.viewTest }}</option>
+            </select>
             <v-btn icon tile :aria-label="labels.open" @click="openDashboard">
                 <v-icon>{{ mdiOpenInNew }}</v-icon>
             </v-btn>
@@ -23,6 +32,96 @@
                 {{ labels.unavailable }}
             </v-alert>
 
+            <div v-if="status && effectiveView === 'test'" class="autopa-sweeps mt-2">
+                <div class="autopa-sweeps-head">
+                    <span class="autopa-sweeps-title">{{ sweepsTitleText }}</span>
+                    <v-spacer />
+                    <span
+                        class="autopa-sweeps-state"
+                        :class="sweepReady ? 'ready' : 'locked'">
+                        {{ sweepReady ? labels.sweepReady : labels.sweepLockedShort }}
+                    </span>
+                </div>
+                <div class="autopa-sweeps-types">
+                    <button
+                        type="button"
+                        class="autopa-sweep-type"
+                        :class="{ active: sweepKind === 'pa' }"
+                        @click="setSweepKind('pa')">
+                        <v-icon x-small class="mr-1">{{ mdiSpeedometer }}</v-icon>
+                        {{ labels.sweepPa }}
+                    </button>
+                    <button
+                        type="button"
+                        class="autopa-sweep-type"
+                        :class="{ active: sweepKind === 'retract' }"
+                        @click="setSweepKind('retract')">
+                        <v-icon x-small class="mr-1">{{ mdiSwapVertical }}</v-icon>
+                        {{ labels.sweepRetract }}
+                    </button>
+                </div>
+                <div class="autopa-sweeps-params">
+                    <label>
+                        <span>{{ labels.sweepFrom }} <em>{{ sweepUnit }}</em></span>
+                        <input
+                            v-model="sweepParams.from"
+                            type="number"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
+                    <label>
+                        <span>{{ labels.sweepTo }} <em>{{ sweepUnit }}</em></span>
+                        <input
+                            v-model="sweepParams.to"
+                            type="number"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
+                    <label>
+                        <span>{{ labels.sweepStep }} <em>{{ sweepUnit }}</em></span>
+                        <input
+                            v-model="sweepParams.step"
+                            type="number"
+                            step="any"
+                            inputmode="decimal" />
+                    </label>
+                    <label>
+                        <span>{{ labels.sweepCycles }}</span>
+                        <input
+                            v-model="sweepParams.cycles"
+                            type="number"
+                            step="1"
+                            inputmode="numeric" />
+                    </label>
+                </div>
+                <div class="autopa-sweeps-arm">
+                    <input
+                        v-model="sweepPhrase"
+                        type="text"
+                        class="autopa-phrase"
+                        :placeholder="armPhrase"
+                        :aria-label="labels.sweepPhraseAria"
+                        autocomplete="off"
+                        spellcheck="false" />
+                    <button
+                        type="button"
+                        class="autopa-send"
+                        :disabled="sweepSendDisabled"
+                        @click="sendSweep">
+                        {{ labels.sweepSend }}
+                    </button>
+                </div>
+                <p v-if="sweepLockReason" class="autopa-sweep-note locked">
+                    {{ sweepLockReason }}
+                </p>
+                <p v-else class="autopa-sweep-note">{{ sweepRestoreLabel }}</p>
+                <p v-if="sweepMessage" class="autopa-sweep-note ok">{{ sweepMessage }}</p>
+                <p v-if="sweepError" class="autopa-sweep-note error">{{ sweepError }}</p>
+                <p v-if="sweepLastRunLabel" class="autopa-sweep-note dim">
+                    {{ sweepLastRunLabel }}
+                </p>
+            </div>
+
             <div v-if="status" class="autopa-sensors">
                 <div class="autopa-sensor temperature">
                     <span>{{ labels.temperature }}</span>
@@ -36,8 +135,16 @@
                 </div>
                 <div class="autopa-sensor pressure">
                     <span>{{ labels.pressure }}</span>
-                    <strong>{{ pressureLabel }}</strong>
-                    <small>{{ pressureDirectionLabel }}</small>
+                    <div class="autopa-barline">
+                        <div class="autopa-vbar" aria-hidden="true">
+                            <i class="autopa-vbar-fill" :style="pressureBarStyle"></i>
+                            <b class="autopa-vbar-zero"></b>
+                        </div>
+                        <div class="autopa-vbar-value">
+                            <strong>{{ pressureLabel }}</strong>
+                            <small>{{ pressureDirectionLabel }}</small>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -89,12 +196,13 @@
 
 <script lang="ts">
 import { Component, Mixins } from 'vue-property-decorator'
-import { mdiChartTimelineVariant, mdiOpenInNew } from '@mdi/js'
+import { mdiChartTimelineVariant, mdiOpenInNew, mdiSpeedometer, mdiSwapVertical } from '@mdi/js'
 import BaseMixin from '@/components/mixins/base'
 import Panel from '@/components/ui/Panel.vue'
 
 type AutoPaMode = 'off' | 'dry_run' | 'apply'
 const PRESSURE_DISPLAY_DEADBAND = 0.1
+const PRESSURE_SMOOTHING_ALPHA = 0.25
 const MOTION_DISPLAY_DEADBAND_MM_S2 = 200
 
 interface AutoPaContext {
@@ -107,12 +215,37 @@ interface AutoPaContext {
     eligibility_reason: string
 }
 
+interface SweepParams {
+    from: string
+    to: string
+    step: string
+    cycles: string
+}
+
+interface SweepRunInfo {
+    startedAt: string
+    cycles: number
+    scriptLines: number
+    retractValues?: number[]
+    restoreRetractMm?: number
+    kValues?: number[]
+    restoreAdvance?: number
+}
+
+interface SweepStatusInfo {
+    allowPrinterCommands: boolean
+    lastRun: SweepRunInfo | null
+    lastError: string | null
+}
+
 interface AutoPaStatus {
     printer: {
         connected: boolean
         temperature: number | null
         target: number | null
         pressureAdvance: number | null
+        printState: string | null
+        retractLength: number | null
     }
     capture: {
         state: string
@@ -159,12 +292,28 @@ interface AutoPaStatus {
 export default class AutopaPanel extends Mixins(BaseMixin) {
     mdiChartTimelineVariant = mdiChartTimelineVariant
     mdiOpenInNew = mdiOpenInNew
+    mdiSpeedometer = mdiSpeedometer
+    mdiSwapVertical = mdiSwapVertical
 
     status: AutoPaStatus | null = null
     error = ''
     actionError = ''
     busy = false
     timer: number | null = null
+    sweepKind: 'retract' | 'pa' = 'pa'
+    retractParams: SweepParams = { from: '0.2', to: '1.4', step: '0.2', cycles: '5' }
+    paParams: SweepParams = { from: '0', to: '0.08', step: '0.01', cycles: '6' }
+    sweepPhrase = ''
+    sweepBusy = false
+    sweepMessage = ''
+    sweepError = ''
+    retractSweep: SweepStatusInfo | null = null
+    paSweep: SweepStatusInfo | null = null
+    readonly armPhrase = 'AUTOPA VALIDIEREN'
+    pressureHistory: number[] = []
+    readonly pressureHistoryLimit = 90
+    pressureSmoothed: number | null = null
+    viewMode: 'auto' | 'print' | 'test' = 'auto'
     mounted() {
         void this.refresh()
         this.timer = window.setInterval(() => void this.refresh(), 1000)
@@ -200,6 +349,27 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   windowActive: 'PA-Messfenster aktiv',
                   windowIgnored: 'PA-Messfenster ignoriert',
                   contextMissing: 'Kein ausgeführter G-Code-Kontext',
+                  sweepsTitleRetract: 'Rückzug-Kalibrierung',
+                  sweepsTitlePa: 'PA-Kalibrierung',
+                  sweepRetract: 'Rückzug',
+                  sweepPa: 'PA (K)',
+                  sweepFrom: 'Von',
+                  sweepTo: 'Bis',
+                  sweepStep: 'Schritt',
+                  sweepCycles: 'Zyklen',
+                  sweepSend: 'Senden',
+                  sweepReady: 'Bereit',
+                  sweepLockedShort: 'Gesperrt',
+                  sweepLockedServer: 'Server-seitig gesperrt.',
+                  sweepRestore: 'Restore am Ende',
+                  sweepPhraseAria: 'Bestätigung für den Sweep',
+                  sweepSent: 'Sweep an den Drucker gesendet.',
+                  sweepInvalid: 'Bitte gültige Zahlen eingeben.',
+                  sweepLastRun: 'Letzter Lauf',
+                  viewModeAria: 'Ansicht',
+                  viewAuto: 'Auto',
+                  viewPrint: 'Druck',
+                  viewTest: 'Test',
               }
             : {
                   unavailable: 'AutoPA is unavailable. Printing continues unchanged.',
@@ -221,6 +391,27 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   windowActive: 'PA evidence window active',
                   windowIgnored: 'PA evidence window ignored',
                   contextMissing: 'No executed G-code context',
+                  sweepsTitleRetract: 'Retraction calibration',
+                  sweepsTitlePa: 'PA calibration',
+                  sweepRetract: 'Retract',
+                  sweepPa: 'PA (K)',
+                  sweepFrom: 'From',
+                  sweepTo: 'To',
+                  sweepStep: 'Step',
+                  sweepCycles: 'Cycles',
+                  sweepSend: 'Send',
+                  sweepReady: 'Ready',
+                  sweepLockedShort: 'Locked',
+                  sweepLockedServer: 'Locked server-side.',
+                  sweepRestore: 'Restore at the end',
+                  sweepPhraseAria: 'Sweep confirmation',
+                  sweepSent: 'Sweep sent to the printer.',
+                  sweepInvalid: 'Please enter valid numbers.',
+                  sweepLastRun: 'Last run',
+                  viewModeAria: 'View',
+                  viewAuto: 'Auto',
+                  viewPrint: 'Print',
+                  viewTest: 'Test',
               }
     }
 
@@ -260,8 +451,13 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         return 'grey'
     }
 
+    get pressureValue() {
+        if (!this.isLive) return null
+        return this.pressureSmoothed
+    }
+
     get pressureLabel() {
-        const value = this.status?.sensors.alps.normalized
+        const value = this.pressureValue
         if (value === null || value === undefined) return '—'
         if (Math.abs(value) < PRESSURE_DISPLAY_DEADBAND) return '≈ 0 %'
         const sign = value > 0 ? '+' : '−'
@@ -269,7 +465,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     }
 
     get pressureDirectionLabel() {
-        const value = this.status?.sensors.alps.normalized
+        const value = this.pressureValue
         if (
             value === null ||
             value === undefined ||
@@ -279,6 +475,28 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         }
         if (value > 0) return this.isGerman ? '+ Druck' : '+ Load'
         return this.isGerman ? '− Zug' : '− Tension'
+    }
+
+    get pressureBarScale() {
+        const peak = this.pressureHistory.reduce(
+            (max, value) => Math.max(max, Math.abs(value)), 0)
+        return Math.max(0.3, peak * 1.15)
+    }
+
+    get pressureBarStyle() {
+        const value = this.pressureValue
+        if (
+            value === null ||
+            value === undefined ||
+            Math.abs(value) < PRESSURE_DISPLAY_DEADBAND
+        ) {
+            return { display: 'none' }
+        }
+        const fraction = Math.min(1, Math.abs(value) / this.pressureBarScale)
+        const height = Math.max(3, fraction * 50)
+        return value >= 0
+            ? { bottom: '50%', height: `${height}%` }
+            : { top: '50%', height: `${height}%` }
     }
 
     get temperatureLabel() {
@@ -387,8 +605,86 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         return this.isGerman ? 'Wartet' : 'Waiting'
     }
 
+    get effectiveView() {
+        if (this.viewMode !== 'auto') return this.viewMode
+        return this.printState === 'standby' ? 'test' : 'print'
+    }
+
+    get sweepsTitleText() {
+        return this.sweepKind === 'retract'
+            ? this.labels.sweepsTitleRetract
+            : this.labels.sweepsTitlePa
+    }
+
     get liveCaptureActive() {
         return this.status?.capture.manager?.active === true
+    }
+
+    get sweepParams(): SweepParams {
+        return this.sweepKind === 'retract' ? this.retractParams : this.paParams
+    }
+
+    get activeSweep(): SweepStatusInfo | null {
+        return this.sweepKind === 'retract' ? this.retractSweep : this.paSweep
+    }
+
+    get sweepUnit() {
+        return this.sweepKind === 'retract' ? 'mm' : 'K'
+    }
+
+    get printState() {
+        return this.status?.printer.printState ?? null
+    }
+
+    get sweepReady() {
+        return (
+            this.activeSweep?.allowPrinterCommands === true &&
+            this.printState === 'standby'
+        )
+    }
+
+    get sweepLockReason() {
+        if (!this.activeSweep) return ''
+        if (!this.activeSweep.allowPrinterCommands) return this.labels.sweepLockedServer
+        if (this.printState !== 'standby') {
+            const state = this.printState ?? (this.isGerman ? 'unbekannt' : 'unknown')
+            return this.isGerman
+                ? `Gesperrt: Drucker ist „${state}“ — Sweep nur im Standby.`
+                : `Locked: printer is "${state}" — sweep requires standby.`
+        }
+        return ''
+    }
+
+    get sweepRestoreLabel() {
+        if (this.sweepKind === 'retract') {
+            const value = this.status?.printer.retractLength
+            return `${this.labels.sweepRestore}: ${this.number(value, 2)} mm`
+        }
+        const value = this.status?.printer.pressureAdvance
+        return `${this.labels.sweepRestore}: ${this.number(value, 3)}`
+    }
+
+    get sweepSendDisabled() {
+        return (
+            this.sweepBusy ||
+            !this.status ||
+            !this.sweepReady ||
+            this.sweepPhrase !== this.armPhrase
+        )
+    }
+
+    get sweepLastRunLabel() {
+        const run = this.activeSweep?.lastRun
+        if (!run) return ''
+        const values = run.retractValues ?? run.kValues ?? []
+        const range = values.length
+            ? `${values[0]}–${values[values.length - 1]} ${this.sweepUnit}`
+            : '—'
+        const restore =
+            run.restoreRetractMm !== undefined
+                ? `${this.number(run.restoreRetractMm, 2)} mm`
+                : this.number(run.restoreAdvance, 3)
+        return `${this.labels.sweepLastRun}: ${range} à ${run.cycles} · Restore ${restore}`
     }
 
     get liveToggleDisabled() {
@@ -403,7 +699,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     }
 
     async refresh() {
-        await this.refreshAutoPa()
+        await Promise.all([this.refreshAutoPa(), this.refreshSweeps()])
     }
 
     async refreshAutoPa() {
@@ -415,6 +711,24 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
             this.status = (await response.json()) as AutoPaStatus
             this.error = ''
+            const pressure = this.status.sensors?.alps?.normalized
+            const live =
+                this.status.capture?.state === 'ok' &&
+                this.status.sensors?.alps?.state === 'ok'
+            if (live && typeof pressure === 'number' && Number.isFinite(pressure)) {
+                this.pressureSmoothed =
+                    this.pressureSmoothed === null
+                        ? pressure
+                        : this.pressureSmoothed +
+                          PRESSURE_SMOOTHING_ALPHA * (pressure - this.pressureSmoothed)
+                this.pressureHistory.push(this.pressureSmoothed)
+                if (this.pressureHistory.length > this.pressureHistoryLimit) {
+                    this.pressureHistory.shift()
+                }
+            } else {
+                this.pressureSmoothed = null
+                this.pressureHistory = []
+            }
         } catch (error) {
             this.error = error instanceof Error ? error.message : String(error)
         }
@@ -477,6 +791,94 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
 
     openDashboard() {
         window.location.assign('/autopa/')
+    }
+
+    setSweepKind(kind: 'retract' | 'pa') {
+        if (this.sweepKind === kind) return
+        this.sweepKind = kind
+        this.sweepMessage = ''
+        this.sweepError = ''
+    }
+
+    async refreshSweeps() {
+        try {
+            const [retractResponse, paResponse] = await Promise.all([
+                fetch('/autopa/api/sweep', {
+                    cache: 'no-store',
+                    headers: { Accept: 'application/json' },
+                }),
+                fetch('/autopa/api/pa-sweep', {
+                    cache: 'no-store',
+                    headers: { Accept: 'application/json' },
+                }),
+            ])
+            if (retractResponse.ok) {
+                this.retractSweep = (await retractResponse.json()) as SweepStatusInfo
+            }
+            if (paResponse.ok) {
+                this.paSweep = (await paResponse.json()) as SweepStatusInfo
+            }
+        } catch (error) {
+            // Sweep-Status ist optional; der Rest der Kachel bleibt nutzbar.
+        }
+    }
+
+    async sendSweep() {
+        if (this.sweepSendDisabled) return
+        this.sweepBusy = true
+        this.sweepMessage = ''
+        this.sweepError = ''
+        try {
+            const params = this.sweepParams
+            const values = [params.from, params.to, params.step, params.cycles].map(
+                (raw) => Number(String(raw).replace(',', '.'))
+            )
+            if (values.some((value) => !Number.isFinite(value))) {
+                throw new Error(this.labels.sweepInvalid)
+            }
+            const payload =
+                this.sweepKind === 'retract'
+                    ? {
+                          phrase: this.sweepPhrase,
+                          r_start: values[0],
+                          r_stop: values[1],
+                          r_step: values[2],
+                          cycles: values[3],
+                      }
+                    : {
+                          phrase: this.sweepPhrase,
+                          k_start: values[0],
+                          k_stop: values[1],
+                          k_step: values[2],
+                          cycles: values[3],
+                      }
+            const url =
+                this.sweepKind === 'retract'
+                    ? '/autopa/api/sweep/run'
+                    : '/autopa/api/pa-sweep/run'
+            const response = await fetch(url, {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            })
+            if (!response.ok) {
+                const body = (await response.json().catch(() => ({}))) as {
+                    error?: string
+                }
+                throw new Error(body.error ?? `HTTP ${response.status}`)
+            }
+            this.sweepMessage = this.labels.sweepSent
+            this.sweepPhrase = ''
+            await this.refreshSweeps()
+        } catch (error) {
+            this.sweepError = error instanceof Error ? error.message : String(error)
+        } finally {
+            this.sweepBusy = false
+        }
     }
 
 }
@@ -596,9 +998,233 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     gap: 5px;
 }
 
+.autopa-sweeps {
+    padding: 7px 8px 8px;
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    border-radius: 4px;
+}
+
+.autopa-sweeps-head {
+    display: flex;
+    align-items: center;
+}
+
+.autopa-sweeps-title {
+    color: var(--v-secondary-lighten2);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.autopa-sweeps-state {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.autopa-sweeps-state.ready {
+    color: var(--v-success-base);
+}
+
+.autopa-sweeps-state.locked {
+    color: var(--v-warning-base);
+}
+
+.autopa-sweeps-types {
+    display: flex;
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.autopa-sweep-type {
+    flex: 1;
+    padding: 3px 0;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--v-secondary-lighten1);
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.autopa-sweep-type.active {
+    border-color: var(--v-primary-base);
+    background: rgba(30, 136, 229, 0.1);
+    color: var(--v-primary-base);
+    font-weight: 600;
+}
+
+.autopa-sweeps-params {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.autopa-sweeps-params label {
+    min-width: 0;
+}
+
+.autopa-sweeps-params label > span {
+    display: flex;
+    justify-content: space-between;
+    color: var(--v-secondary-lighten2);
+    font-size: 0.58rem;
+}
+
+.autopa-sweeps-params em {
+    font-style: normal;
+}
+
+.autopa-sweeps-params input {
+    width: 100%;
+    margin-top: 2px;
+    padding: 2px 5px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 0.72rem;
+}
+
+.autopa-sweeps-arm {
+    display: flex;
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.autopa-phrase {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px dashed rgba(128, 128, 128, 0.35);
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+}
+
+.autopa-send {
+    flex: 0 0 auto;
+    padding: 3px 12px;
+    border: 0;
+    border-radius: 3px;
+    background: var(--v-primary-base);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.autopa-send:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.autopa-sweep-note {
+    margin: 4px 0 0;
+    color: var(--v-secondary-lighten1);
+    font-size: 0.63rem;
+    line-height: 1.35;
+}
+
+.autopa-sweep-note.locked {
+    color: var(--v-warning-base);
+}
+
+.autopa-sweep-note.ok {
+    color: var(--v-success-base);
+}
+
+.autopa-sweep-note.error {
+    color: var(--v-error-base);
+}
+
+.autopa-sweep-note.dim {
+    color: var(--v-secondary-lighten2);
+}
+
+.autopa-view-select {
+    align-self: center;
+    height: 22px;
+    margin-right: 2px;
+    padding: 0 4px;
+    border: 1px solid rgba(128, 128, 128, 0.3);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--v-secondary-lighten1);
+    font-size: 0.65rem;
+}
+
+.autopa-view-select option {
+    color: #111;
+}
+
+.autopa-barline {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 1px;
+}
+
+.autopa-vbar {
+    position: relative;
+    flex: 0 0 auto;
+    width: 6px;
+    height: 30px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 3px;
+}
+
+.autopa-vbar-zero {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: rgba(128, 128, 128, 0.55);
+}
+
+.autopa-vbar-fill {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    border-radius: 2px;
+    background: var(--v-primary-base);
+    transition:
+        top 320ms ease,
+        bottom 320ms ease,
+        height 320ms ease;
+}
+
+.autopa-vbar-value {
+    min-width: 0;
+}
+
+.autopa-vbar-value strong,
+.autopa-vbar-value small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .autopa-vbar-fill {
+        transition: none;
+    }
+}
+
 @media (max-width: 420px) {
     .autopa-sensors {
         grid-template-columns: 1fr;
+    }
+
+    .autopa-sweeps-params {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .autopa-sensor {
@@ -606,6 +1232,14 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         grid-template-columns: 0.9fr 1fr 1.3fr;
         align-items: center;
         gap: 6px;
+    }
+
+    .autopa-sensor.pressure {
+        grid-template-columns: 0.9fr 2.3fr;
+    }
+
+    .autopa-sensor.pressure .autopa-barline {
+        grid-column: 2;
     }
 
     .autopa-sensor strong,

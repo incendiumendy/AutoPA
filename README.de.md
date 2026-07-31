@@ -227,6 +227,28 @@ Vor jedem Test:
 ist, die X-Bewegung den Achsbereich überschreiten würde oder das Hotend zu kalt
 ist.
 
+## Überwachten Rückzugs-Sweep erzeugen
+
+`retract_sweep` variiert die Rückzugslänge von Klippers
+`[firmware_retraction]` über markierte `G10`/Wartezeit/`G11`-Zyklen.
+`retract_analyze` bewertet die Werte anhand des Restdüsendrucks und
+des Wiederanfahrverhaltens. Der aktuelle Rückzugswert ist als
+`--restore-retract` Pflicht, damit die Datei ihn am Ende wiederherstellt:
+
+```sh
+PYTHONPATH=src python3 -m autopa.retract_sweep \r
+  --r-start 0.2 \r
+  --r-stop 1.4 \r
+  --r-step 0.2 \r
+  --cycles 5 \r
+  --restore-retract 0.8 \r
+  --output autopa-retract-smoke.gcode
+```
+
+Die Empfehlung ist fail-closed, experimentell und wird niemals
+automatisch übernommen. Siehe
+[Rückzugs-Sweep-Dokumentation](docs/RETRACT_SWEEP.md).
+
 ## Sicherheitsgrenzen
 
 - Normales Drucken ist Fail-open: Recorder- oder Sensorfehler pausieren oder

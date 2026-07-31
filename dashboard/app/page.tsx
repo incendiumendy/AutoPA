@@ -126,6 +126,25 @@ type DashboardStatus = {
     commandCount: number;
     printerAction: "none" | "chamber_filter_only";
   };
+  sweep: SweepStatus;
+};
+
+type SweepLastRun = {
+  startedAt: string;
+  retractValues: number[];
+  cycles: number;
+  restoreRetractMm: number;
+  estimatedDurationS: number;
+  filamentLengthMm: number;
+  scriptLines: number;
+};
+
+type SweepStatus = {
+  allowPrinterCommands: boolean;
+  confirmationPhraseRequired: boolean;
+  lastRun: SweepLastRun | null;
+  lastError: string | null;
+  printerAction: "none";
 };
 
 type MaterialProfile = {
@@ -360,6 +379,13 @@ const EMPTY_STATUS: DashboardStatus = {
     lastCommand: null,
     lastError: null,
     commandCount: 0,
+    printerAction: "none",
+  },
+  sweep: {
+    allowPrinterCommands: false,
+    confirmationPhraseRequired: true,
+    lastRun: null,
+    lastError: null,
     printerAction: "none",
   },
 };
@@ -782,6 +808,13 @@ export default function Home() {
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureMessage, setCaptureMessage] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
+  const [sweepRStart, setSweepRStart] = useState("0.2");
+  const [sweepRStop, setSweepRStop] = useState("1.4");
+  const [sweepRStep, setSweepRStep] = useState("0.2");
+  const [sweepCycles, setSweepCycles] = useState("5");
+  const [sweepPhrase, setSweepPhrase] = useState("");
+  const [sweepBusy, setSweepBusy] = useState(false);
+  const [sweepMessage, setSweepMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -829,6 +862,12 @@ export default function Home() {
         const response = await fetch("api/status", { cache: "no-store" });
         if (!response.ok) throw new Error("status unavailable");
         const next = (await response.json()) as DashboardStatus;
+        try {
+          const sweepResponse = await fetch("api/sweep", { cache: "no-store" });
+          if (sweepResponse.ok) next.sweep = await sweepResponse.json();
+        } catch {
+          // Sweep status is optional; the card keeps its previous state.
+        }
         if (!active) return;
         const previous = smoothedSensors.current;
         const displayed = {
@@ -1098,6 +1137,40 @@ export default function Home() {
       );
     } finally {
       setCaptureBusy(false);
+    }
+  };
+
+  const postSweepRun = async () => {
+    setSweepBusy(true);
+    setSweepMessage("");
+    try {
+      const response = await fetch("api/sweep/run", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phrase: sweepPhrase,
+          r_start: Number(sweepRStart),
+          r_stop: Number(sweepRStop),
+          r_step: Number(sweepRStep),
+          cycles: Number(sweepCycles),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
+      setStatus((current) => ({ ...current, sweep: result }));
+      setSweepMessage(
+        result.lastRun
+          ? `Sweep gesendet: ${result.lastRun.retractValues.length} Werte à ${result.lastRun.cycles} Zyklen, ca. ${Math.round(result.lastRun.estimatedDurationS)} s. Am Drucker bleiben!`
+          : "Sweep gesendet.",
+      );
+      setSweepPhrase("");
+    } catch (error) {
+      setSweepMessage(
+        error instanceof Error ? error.message : "Sweep fehlgeschlagen",
+      );
+    } finally {
+      setSweepBusy(false);
     }
   };
 
@@ -1470,6 +1543,131 @@ export default function Home() {
               {controlMessage && <p className="control-message">{controlMessage}</p>}
               {status.control.lastError && (
                 <p className="control-error">{status.control.lastError}</p>
+              )}
+            </article>
+
+            <article className="adaptive-card">
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">Überwachter Test vor dem Druck</p>
+                  <h2>Rückzugs-Sweep</h2>
+                </div>
+                <span className="safety-note">
+                  {status.sweep.allowPrinterCommands
+                    ? "Bestätigung pro Lauf"
+                    : "Server-seitig gesperrt"}
+                </span>
+              </div>
+
+              <div className="field-group two">
+                <label>
+                  Von
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={sweepRStart}
+                      onChange={(event) => setSweepRStart(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Bis
+                  <span>
+                    <input
+                      type="number"
+                      min="0.05"
+                      max="10"
+                      step="0.1"
+                      value={sweepRStop}
+                      onChange={(event) => setSweepRStop(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+              </div>
+              <div className="field-group two">
+                <label>
+                  Schritt
+                  <span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="2"
+                      step="0.01"
+                      value={sweepRStep}
+                      onChange={(event) => setSweepRStep(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Zyklen je Wert
+                  <span>
+                    <input
+                      type="number"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={sweepCycles}
+                      onChange={(event) => setSweepCycles(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              <div className="arming-row">
+                <input
+                  type="text"
+                  value={sweepPhrase}
+                  onChange={(event) => setSweepPhrase(event.target.value)}
+                  placeholder="AUTOPA VALIDIEREN"
+                  aria-label="Bestätigung für den Rückzugs-Sweep"
+                />
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    sweepBusy ||
+                    !status.sweep.allowPrinterCommands ||
+                    sweepPhrase !== "AUTOPA VALIDIEREN" ||
+                    status.printer.printState !== "standby"
+                  }
+                  onClick={postSweepRun}
+                >
+                  Sweep an Drucker senden
+                </button>
+              </div>
+
+              {status.printer.printState !== "standby" && (
+                <p className="control-error">
+                  Gesperrt: Drucker ist „{status.printer.printState || "unbekannt"}
+                  “ — der Sweep läuft nur im Standby und wird während eines
+                  Drucks serverseitig abgelehnt.
+                </p>
+              )}
+
+              <p className="control-note">
+                Erzeugt den markierten G10/G11-Sweep im Speicher und sendet ihn
+                direkt an Moonraker — keine G-Code-Datei nötig. Der aktuelle
+                Wert ({formatNumber(status.printer.retractLength, 2)} mm) wird
+                am Ende wiederhergestellt. Nur im Standby: Düse ≥ 10 mm über
+                dem Bett, Auffangbehälter, Recorder vorher starten und am
+                Drucker bleiben.
+              </p>
+              {status.sweep.lastRun && (
+                <p className="control-message">
+                  Letzter Lauf: {status.sweep.lastRun.retractValues.join(", ")}{" "}
+                  mm à {status.sweep.lastRun.cycles} Zyklen · Restore{" "}
+                  {formatNumber(status.sweep.lastRun.restoreRetractMm, 2)} mm
+                </p>
+              )}
+              {sweepMessage && <p className="control-message">{sweepMessage}</p>}
+              {status.sweep.lastError && (
+                <p className="control-error">{status.sweep.lastError}</p>
               )}
             </article>
           </div>

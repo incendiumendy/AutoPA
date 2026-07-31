@@ -44,6 +44,24 @@ nötig.
 Die AutoPA-Kachel zeigt keinen Local-Vision-Zustand mehr. Dadurch sind beide
 Werkzeuge sichtbar getrennt und es gibt keine doppelte Local-Vision-Anzeige.
 
+Die Kachel enthält außerdem einen kompakten Kalibrierungs-Block für
+Firmware-Rückzug (mm) und Pressure Advance (K). Beide Sweeps werden direkt
+aus der Kachel an Moonraker gesendet, ohne G-Code-Datei. Sie erfordern die
+Bestätigungsphrase, den Druckerzustand `standby` und das serverseitige
+Opt-in-Flag; während eines Drucks ist der Block sichtbar gesperrt und der
+Server lehnt zusätzlich ab. Der zum Laufbeginn aktive Rückzugs- bzw. PA-Wert
+wird am Ende automatisch wiederhergestellt.
+
+Das Düsendruck-Fenster zeigt den geglätteten relativen Düsendruck als
+vertikalen Balken mit Nullpunkt in der Mitte (Druck nach oben, Zug nach
+unten) und dem Prozentwert daneben. Die Anzeige nutzt einen exponentiellen
+Mittelwert, damit Sensorrauschen im Leerlauf nicht ausschlägt; ohne
+Live-Daten zeigt das Fenster „—“. Rohdaten und Auswertung bleiben unverändert.
+
+Über ein kleines Dropdown im Kachelkopf lässt sich die Ansicht umschalten:
+`Auto` folgt dem Druckerzustand, `Druck` blendet den Sweep-Block aus,
+`Test` zeigt ihn prominent oben.
+
 Sie kann AutoPA öffnen, die passive Aufnahme schalten und ausschließlich
 zwischen `off` und `dry_run` umschalten. Sie kann **keinen bewaffneten Modus
 starten**, keine
@@ -130,6 +148,21 @@ checkbox and a second dialog listing bed size, safe Z and all five points. The
 server still enforces idle state, live axis limits, plain `G28` without heating
 and Mainsail-console progress messages. The AutoPA tile no longer contains any
 Local Vision row.
+
+The tile also contains a compact calibration block for firmware retraction (mm)
+and pressure advance (K). Both sweeps are sent straight to Moonraker without a
+G-code file. They require the confirmation phrase, the printer state `standby`
+and the server-side opt-in flag; during a print the block is visibly locked and
+the server refuses as well. The retraction or PA value active at run start is
+restored automatically at the end.
+
+The pressure cell shows the smoothed relative nozzle load as a vertical bar
+centered on zero (load up, tension down) with the percentage beside it. An
+exponential moving average keeps idle sensor noise from swinging the display;
+without live data the cell shows “—”. Raw data and analysis stay unchanged.
+
+A small dropdown in the tile header switches the view: `Auto` follows the
+printer state, `Print` hides the sweep block, `Test` brings it to the top.
 It cannot arm runtime command application or bypass AutoPA's safety gates.
 
 Mainsail has native sortable panels and macro groups but no stable external

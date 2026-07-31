@@ -63,7 +63,7 @@
                 <v-btn
                     x-small
                     outlined
-                    :disabled="busy || !serviceHealthy"
+                    :disabled="busy || !serviceHealthy || spaghettiState !== 'idle'"
                     @click="checkPlan">
                     {{ labels.check }}
                 </v-btn>
@@ -71,10 +71,55 @@
                 <v-btn
                     x-small
                     color="warning"
-                    :disabled="busy || !serviceHealthy || !motionConfirmed"
+                    :disabled="
+                        busy
+                        || !serviceHealthy
+                        || !motionConfirmed
+                        || spaghettiState !== 'idle'
+                    "
                     @click="startCalibration">
                     {{ labels.start }}
                 </v-btn>
+            </div>
+
+            <v-divider class="my-3" />
+
+            <div class="localvision-calibration-title mb-2">
+                <strong>{{ labels.spaghetti }}</strong>
+                <small>{{ spaghettiStatusLabel }}</small>
+            </div>
+
+            <div class="localvision-message localvision-spaghetti-message">
+                {{ spaghettiMessage || labels.spaghettiReady }}
+            </div>
+
+            <div class="localvision-actions mt-2">
+                <v-btn
+                    v-if="spaghettiState === 'idle'"
+                    x-small
+                    outlined
+                    color="primary"
+                    :disabled="busy || !serviceHealthy"
+                    @click="prepareSpaghetti">
+                    {{ labels.spaghettiPrepare }}
+                </v-btn>
+                <template v-else>
+                    <v-btn
+                        x-small
+                        outlined
+                        :disabled="busy"
+                        @click="cancelSpaghetti">
+                        {{ labels.cancel }}
+                    </v-btn>
+                    <v-spacer />
+                    <v-btn
+                        x-small
+                        color="warning"
+                        :disabled="busy || spaghettiState !== 'awaiting_spaghetti'"
+                        @click="analyzeSpaghetti">
+                        {{ labels.spaghettiAnalyze }}
+                    </v-btn>
+                </template>
             </div>
         </v-card-text>
     </panel>
@@ -107,6 +152,12 @@ interface PlanResponse {
     plan: CalibrationPlan
 }
 
+interface SpaghettiStatus {
+    ok: boolean
+    state: string
+    sessionToken?: string
+}
+
 @Component({
     components: { Panel },
 })
@@ -122,6 +173,9 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
     actionError = ''
     message = ''
     plan: CalibrationPlan | null = null
+    spaghettiState = 'idle'
+    spaghettiToken = ''
+    spaghettiMessage = ''
     timer: number | null = null
 
     mounted() {
@@ -159,6 +213,14 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
                   calibrated: 'KALIBRIERT',
                   notCalibrated: 'NICHT KALIBRIERT',
                   running: 'LÄUFT',
+                  spaghetti: 'Spaghetti-Test',
+                  spaghettiReady: 'Kalt und im Stillstand: saubere Referenz aufnehmen.',
+                  spaghettiPrepare: 'Referenz aufnehmen',
+                  spaghettiAnalyze: 'Spaghetti prüfen',
+                  spaghettiWaiting: 'FILAMENT AUFLEGEN',
+                  spaghettiIdle: 'BEREIT',
+                  spaghettiRunning: 'PRÜFT',
+                  cancel: 'Abbrechen',
               }
             : {
                   unavailable: 'Service unavailable',
@@ -178,6 +240,14 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
                   calibrated: 'CALIBRATED',
                   notCalibrated: 'NOT CALIBRATED',
                   running: 'RUNNING',
+                  spaghetti: 'Spaghetti test',
+                  spaghettiReady: 'Cold and stationary: capture a clean reference.',
+                  spaghettiPrepare: 'Capture reference',
+                  spaghettiAnalyze: 'Check spaghetti',
+                  spaghettiWaiting: 'PLACE FILAMENT',
+                  spaghettiIdle: 'READY',
+                  spaghettiRunning: 'CHECKING',
+                  cancel: 'Cancel',
               }
     }
 
@@ -211,6 +281,14 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
         return this.plan ? String(this.plan.points.length) : '5'
     }
 
+    get spaghettiStatusLabel() {
+        if (this.spaghettiState === 'awaiting_spaghetti') {
+            return this.labels.spaghettiWaiting
+        }
+        if (this.spaghettiState === 'analyzing') return this.labels.spaghettiRunning
+        return this.labels.spaghettiIdle
+    }
+
     async request(path: string, options: RequestInit = {}) {
         const response = await fetch(path, {
             cache: 'no-store',
@@ -231,13 +309,25 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
 
     async refresh() {
         try {
-            const [health, config] = await Promise.all([
+            const [health, config, spaghetti] = await Promise.all([
                 this.request('/local-vision/api/health'),
                 this.request('/local-vision/api/config'),
+                this.request('/local-vision/api/spaghetti/status'),
             ])
             this.serviceHealthy =
                 health.ok === true && health.service === 'local-vision-console'
             this.calibrated = config.cameraCalibrationConfigured === true
+            const spaghettiStatus = spaghetti as unknown as SpaghettiStatus
+            this.spaghettiState = spaghettiStatus.state || 'idle'
+            this.spaghettiToken = spaghettiStatus.sessionToken || ''
+            if (
+                this.spaghettiState === 'awaiting_spaghetti'
+                && !this.spaghettiMessage
+            ) {
+                this.spaghettiMessage = this.isGerman
+                    ? 'Referenz gespeichert. Jetzt Spaghetti auflegen und prüfen.'
+                    : 'Reference saved. Place spaghetti, then run the check.'
+            }
             this.serviceError = ''
         } catch (error) {
             this.serviceHealthy = false
@@ -279,17 +369,16 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
         try {
             const preview = await this.checkPlan()
             if (!preview) return
-            const points = preview.plan.points
-                .map((point) => `${point.name}: X${point.x} Y${point.y}`)
-                .join('\n')
             const confirmed = window.confirm(
                 (this.isGerman
                     ? 'Automatische Kamerakalibrierung startet jetzt G28 ohne Heizen.'
                     : 'Automatic camera calibration will now start G28 without heating.')
-                    + `\n\n${this.bedLabel}\nZ ${preview.plan.safeZ} mm\n${points}\n\n`
                     + (this.isGerman
-                        ? 'Der Drucker muss leer und beaufsichtigt sein. Jetzt starten?'
-                        : 'The printer must be clear and supervised. Start now?'),
+                        ? `\n\nArbeitsbereich: ${this.bedLabel}\nSichere Höhe: Z${preview.plan.safeZ} mm\n${preview.plan.points.length} Messpunkte inklusive Mitte\n\n`
+                        : `\n\nWorking area: ${this.bedLabel}\nSafe height: Z${preview.plan.safeZ} mm\n${preview.plan.points.length} points including center\n\n`)
+                    + (this.isGerman
+                        ? 'Drucker leer und beaufsichtigt – jetzt starten?'
+                        : 'Printer clear and supervised – start now?'),
             )
             if (!confirmed) {
                 this.motionConfirmed = false
@@ -325,6 +414,93 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
                 : `Calibration saved. Check error ${(
                       Number(result.reprojectionError) * 100
                   ).toFixed(1)} %.`
+        } catch (error) {
+            this.actionError = error instanceof Error ? error.message : String(error)
+        } finally {
+            this.busy = false
+        }
+    }
+
+    async prepareSpaghetti() {
+        const confirmed = window.confirm(
+            this.isGerman
+                ? 'Der Drucker muss kalt, leer und vollständig im Stillstand sein. Es wird nur ein Foto aufgenommen; Homing, Heizen und Bewegungen sind gesperrt. Referenz jetzt aufnehmen?'
+                : 'The printer must be cold, clear and completely stationary. Only a photo is captured; homing, heating and movement are blocked. Capture the reference now?',
+        )
+        if (!confirmed) return
+        this.busy = true
+        this.actionError = ''
+        this.spaghettiMessage = this.isGerman
+            ? 'Sauberes Referenzbild wird aufgenommen …'
+            : 'Capturing clean reference image …'
+        try {
+            const result = await this.request('/local-vision/api/spaghetti/prepare', {
+                method: 'POST',
+                body: JSON.stringify({ confirmation: 'COLD_IDLE_REFERENCE' }),
+            })
+            this.spaghettiState = String(result.state || 'awaiting_spaghetti')
+            this.spaghettiToken = String(result.sessionToken || '')
+            this.spaghettiMessage = this.isGerman
+                ? 'Referenz gespeichert. Jetzt Spaghetti auflegen und prüfen.'
+                : 'Reference saved. Place spaghetti, then run the check.'
+        } catch (error) {
+            this.actionError = error instanceof Error ? error.message : String(error)
+            this.spaghettiState = 'idle'
+            this.spaghettiToken = ''
+        } finally {
+            this.busy = false
+        }
+    }
+
+    async analyzeSpaghetti() {
+        if (!this.spaghettiToken) return
+        const confirmed = window.confirm(
+            this.isGerman
+                ? 'Liegt das Spaghetti-Filament sichtbar im Kamerabild? Der Drucker bleibt kalt und unbewegt.'
+                : 'Is the spaghetti filament visible in the camera image? The printer remains cold and stationary.',
+        )
+        if (!confirmed) return
+        this.busy = true
+        this.spaghettiState = 'analyzing'
+        this.actionError = ''
+        this.spaghettiMessage = this.isGerman
+            ? 'Bildunterschied und Vision-Modell prüfen das Filament …'
+            : 'Image difference and vision model are checking the filament …'
+        try {
+            const result = await this.request('/local-vision/api/spaghetti/analyze', {
+                method: 'POST',
+                body: JSON.stringify({ sessionToken: this.spaghettiToken }),
+            })
+            const detected = result.spaghettiDetected === true
+            const confidence = Math.round(Number(result.confidence || 0) * 100)
+            this.spaghettiMessage = detected
+                ? (this.isGerman
+                    ? `Spaghetti erkannt (${confidence} %).`
+                    : `Spaghetti detected (${confidence}%).`)
+                : (this.isGerman
+                    ? `Kein eindeutiges Spaghetti erkannt (${confidence} %).`
+                    : `No clear spaghetti detected (${confidence}%).`)
+            this.spaghettiState = 'idle'
+            this.spaghettiToken = ''
+        } catch (error) {
+            this.actionError = error instanceof Error ? error.message : String(error)
+            await this.refresh()
+        } finally {
+            this.busy = false
+        }
+    }
+
+    async cancelSpaghetti() {
+        this.busy = true
+        this.actionError = ''
+        try {
+            await this.request('/local-vision/api/spaghetti/cancel', {
+                method: 'POST',
+                body: JSON.stringify({ sessionToken: this.spaghettiToken }),
+            })
+            this.spaghettiState = 'idle'
+            this.spaghettiToken = ''
+            this.spaghettiMessage = ''
         } catch (error) {
             this.actionError = error instanceof Error ? error.message : String(error)
         } finally {
@@ -413,6 +589,11 @@ export default class LocalvisionPanel extends Mixins(BaseMixin) {
     background: rgba(255, 152, 0, 0.07);
     color: var(--v-secondary-lighten2);
     font-size: 0.72rem;
+}
+
+.localvision-spaghetti-message {
+    border-left-color: var(--v-primary-base);
+    background: rgba(33, 150, 243, 0.07);
 }
 
 .localvision-actions {

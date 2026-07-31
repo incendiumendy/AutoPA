@@ -109,6 +109,20 @@ class MainsailTileTests(unittest.TestCase):
                 "MOTION_DISPLAY_DEADBAND_MM_S2 = 200", panel)
             self.assertIn("this.status?.sensors.alps.state === 'ok'", panel)
             self.assertNotIn("SET_PRESSURE_ADVANCE", panel)
+            self.assertIn("/autopa/api/sweep", panel)
+            self.assertIn("/autopa/api/pa-sweep/run", panel)
+            self.assertIn("AUTOPA VALIDIEREN", panel)
+            self.assertIn("sweepKind === 'retract'", panel)
+            self.assertIn("Rückzug-Kalibrierung", panel)
+            self.assertIn("PA-Kalibrierung", panel)
+            self.assertIn("sweepReady", panel)
+            self.assertIn("printState === 'standby'", panel)
+            self.assertIn("pressureHistory", panel)
+            self.assertIn("autopa-vbar-fill", panel)
+            self.assertIn("autopa-view-select", panel)
+            self.assertIn("effectiveView", panel)
+            self.assertIn("pressureSmoothed", panel)
+            self.assertIn("PRESSURE_SMOOTHING_ALPHA", panel)
             self.assertIn("/local-vision/api/health", localvision_panel)
             self.assertIn("/local-vision/api/config", localvision_panel)
             self.assertIn(
@@ -120,6 +134,13 @@ class MainsailTileTests(unittest.TestCase):
             self.assertIn(
                 "/local-vision/api/camera/calibration/run",
                 localvision_panel)
+            self.assertIn(
+                "/local-vision/api/spaghetti/prepare",
+                localvision_panel)
+            self.assertIn(
+                "/local-vision/api/spaghetti/analyze",
+                localvision_panel)
+            self.assertIn("COLD_IDLE_REFERENCE", localvision_panel)
             self.assertIn(
                 "motionConfirmation: 'HOME_AND_MOVE'",
                 localvision_panel)
@@ -166,6 +187,12 @@ class MainsailTileTests(unittest.TestCase):
             self.assertEqual(
                 "/local-vision/api/camera/calibration/run",
                 public_manifest["local_vision_api"]["calibration_run"])
+            self.assertEqual(
+                "/local-vision/api/spaghetti/prepare",
+                public_manifest["local_vision_api"]["spaghetti_prepare"])
+            self.assertEqual(
+                "/local-vision/api/spaghetti/analyze",
+                public_manifest["local_vision_api"]["spaghetti_analyze"])
             self.assertEqual(
                 ["/autopa/", "/local-vision/"],
                 public_manifest["navigation_links"])

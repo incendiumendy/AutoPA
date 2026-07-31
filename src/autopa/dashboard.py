@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 from .adaptive import AdaptiveController
 from .capture_manager import CaptureManager
 from .chamber_filter import ChamberFilterController
+from .retract_runner import RetractSweepRunner
+from .pa_runner import PaSweepRunner
 from .sync_recorder import ACCELEROMETER_ENDPOINTS
 
 
@@ -218,12 +220,45 @@ def build_dashboard_status(printer_status, live_status,
 
 class DashboardData:
     def __init__(self, moonraker_url, live_status_path, controller=None,
-                 capture_manager=None, chamber_filter=None):
+                 capture_manager=None, chamber_filter=None,
+                 sweep_runner=None, pa_sweep_runner=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
         self.capture_manager = capture_manager
         self.chamber_filter = chamber_filter
+        self.sweep_runner = sweep_runner
+        self.pa_sweep_runner = pa_sweep_runner
+
+    def sweep_status(self):
+        return (
+            self.sweep_runner.status() if self.sweep_runner else {
+                "allowPrinterCommands": False,
+                "confirmationPhraseRequired": True,
+                "lastRun": None,
+                "lastError": "sweep_runner_disabled",
+                "printerAction": "none",
+            })
+
+    def run_sweep(self, payload):
+        if not self.sweep_runner:
+            raise RuntimeError("sweep runner disabled")
+        return self.sweep_runner.run(payload)
+
+    def pa_sweep_status(self):
+        return (
+            self.pa_sweep_runner.status() if self.pa_sweep_runner else {
+                "allowPrinterCommands": False,
+                "confirmationPhraseRequired": True,
+                "lastRun": None,
+                "lastError": "pa_sweep_runner_disabled",
+                "printerAction": "none",
+            })
+
+    def run_pa_sweep(self, payload):
+        if not self.pa_sweep_runner:
+            raise RuntimeError("pa sweep runner disabled")
+        return self.pa_sweep_runner.run(payload)
 
     def _printer_status(self):
         request = urllib.request.Request(
@@ -389,6 +424,11 @@ def make_handler(data, static_dir):
             if request_path == "/api/filter":
                 self._send_json(data.filter_status())
                 return
+            if request_path == "/api/sweep":
+                self._send_json(data.sweep_status())
+            if request_path == "/api/pa-sweep":
+                self._send_json(data.pa_sweep_status())
+                return
 
             relative = request_path.lstrip("/") or "index.html"
             candidate = (static_root / relative).resolve()
@@ -426,7 +466,8 @@ def make_handler(data, static_dir):
                      "/api/control/disarm",
                      "/api/capture/start",
                      "/api/capture/stop",
-                     "/api/filter/config"}:
+                     "/api/filter/config",
+                     "/api/sweep/run", "/api/pa-sweep/run"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -449,6 +490,10 @@ def make_handler(data, static_dir):
                     result = data.start_capture(payload)
                 elif request_path == "/api/capture/stop":
                     result = data.stop_capture()
+                elif request_path == "/api/sweep/run":
+                    result = data.run_sweep(payload)
+                elif request_path == "/api/pa-sweep/run":
+                    result = data.run_pa_sweep(payload)
                 else:
                     result = data.update_filter(payload)
                 self._send_json(result)
@@ -570,9 +615,17 @@ def main():
         args.filter_state, moonraker_url=args.moonraker_url,
         allow_commands=args.allow_filter_commands)
     chamber_filter.start()
+    sweep_runner = RetractSweepRunner(
+        moonraker_url=args.moonraker_url,
+        allow_printer_commands=args.allow_printer_commands)
+    pa_sweep_runner = PaSweepRunner(
+        moonraker_url=args.moonraker_url,
+        allow_printer_commands=args.allow_printer_commands)
     data = DashboardData(
         args.moonraker_url, args.live_status, controller=controller,
-        capture_manager=capture_manager, chamber_filter=chamber_filter)
+        capture_manager=capture_manager, chamber_filter=chamber_filter,
+        sweep_runner=sweep_runner,
+        pa_sweep_runner=pa_sweep_runner)
     server = ThreadingHTTPServer(
         (args.host, args.port), make_handler(data, args.static_dir))
     print("AutoPA dashboard listening on http://%s:%d" % (
