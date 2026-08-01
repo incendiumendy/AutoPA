@@ -144,6 +144,37 @@ test("guides through the three calibration stages in working order", async () =>
   assert.match(page, /nur während „printing“/);
 });
 
+test("every stage reports what it handed to the next one", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // Stages chain through the printer's runtime state: stage 1 applies PA,
+  // stage 2 then measures at that PA and applies a length, stage 3 holds
+  // that length. A silent result would leave the operator measuring against
+  // a value nobody confirmed.
+  const results = page.match(/<StageResult /g) ?? [];
+  assert.equal(results.length, 3, "all three stages report their result");
+  assert.match(page, /apply=\{status\.paSweep\.lastApply\}/);
+  assert.match(page, /apply=\{status\.sweep\.lastApply\}/);
+  assert.match(css, /\.stage-result \{/);
+
+  // Runtime-only application is the whole safety story - say so.
+  assert.match(page, /kein SAVE_CONFIG/);
+  assert.match(page, /Klipper-Neustart/);
+
+  // A refused recommendation must name its reason rather than stay blank.
+  assert.match(page, /APPLY_SKIP_REASONS/);
+  for (const reason of ["outside_bounds", "no_recommendation"]) {
+    assert.match(page, new RegExp(reason));
+  }
+});
+
 test("the speed stage is honest about what the sensor cannot see", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
