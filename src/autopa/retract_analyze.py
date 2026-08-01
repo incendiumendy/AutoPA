@@ -190,11 +190,21 @@ def analyze_retract_dataset(dataset_dir):
         metrics["unretract_print_time"] = following[0]["print_time"]
         cycles_by_value.setdefault(r_value, []).append(metrics)
 
-    swept = "length"
-    for event in events:
-        if event["event"] == "retract_sweep_mode":
-            swept = "speed" if event["value"] == "speed" else "length"
-            break
+    # One capture can hold several sweeps back to back - a live recording
+    # left running across all calibration stages does exactly that. Taking
+    # the first mode marker would then label a later speed sweep's 20-60 mm/s
+    # candidates as retract lengths, so the mode is resolved per cycle from
+    # the nearest preceding marker.
+    modes_seen = {
+        "speed" if event["value"] == "speed" else "length"
+        for event in events if event["event"] == "retract_sweep_mode"
+    } or {"length"}
+    if len(modes_seen) > 1:
+        raise ValueError(
+            "dataset contains both a length and a speed sweep; analyze them "
+            "separately so their candidates are not ranked against each "
+            "other")
+    swept = next(iter(modes_seen))
 
     per_value = []
     for r_value in sorted(cycles_by_value):

@@ -9,7 +9,9 @@ import argparse
 import json
 import os
 
-from .sweep import build_position_preamble, decimal_range, prime_settle_e
+from .sweep import (
+    build_position_preamble, decimal_range, prime_settle_e, reprime_block,
+    reprime_duration_s)
 
 
 MAX_RETRACT_MM = 10.0
@@ -165,6 +167,12 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
             ])
             offset += cycle_period
         lines.append("AUTOPA_MARK EVENT=r_end VALUE=%.4f" % r_value)
+        # Refill before the next candidate so every one starts from the same
+        # nozzle pressure. Skipped after the last candidate, where the sweep
+        # ends anyway.
+        if r_index < len(candidates) - 1:
+            lines.extend(reprime_block(prime_e, "%.4f" % r_value))
+            offset += reprime_duration_s(prime_e)
     restore = "SET_RETRACTION RETRACT_LENGTH=%.4f" % restore_retract
     if sweep_speed:
         # A speed sweep changed both speeds, so both must be put back or the
@@ -206,9 +214,12 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "current_z_mm": current_z,
         "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
+        "reprime_count": max(0, len(candidates) - 1) if prime_e else 0,
         "filament_length_mm": (
             len(candidates) * cycles * 2.0 * extrude_e
-            + (prime_e or 0.0) + prime_settle_e(prime_e)),
+            # One prime at the start plus one between every pair of values.
+            + (len(candidates) if prime_e else 1) * (
+                (prime_e or 0.0) + prime_settle_e(prime_e))),
         "segments": segments,
         "notes": ([
             "The sweep sets RETRACT_SPEED and UNRETRACT_SPEED together and "

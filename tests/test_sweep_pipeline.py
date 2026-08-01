@@ -210,17 +210,51 @@ class SweepPipelineTest(unittest.TestCase):
             self.assertEqual(manager.stopped, ["sweep_rejected"])
             self.assertIsNone(runner.last_apply)
 
-    def test_busy_capture_leads_to_no_dataset(self):
+    def test_busy_capture_refuses_before_the_printer_moves(self):
+        # A sweep that cannot own its capture produces nothing analysable:
+        # the running capture is never finalised, so there are no markers.
+        # It used to run anyway and report no_capture_dataset afterwards,
+        # having extruded filament for nothing. Now it refuses up front.
+        for kind in ("retract", "pa"):
+            with tempfile.TemporaryDirectory() as tmp:
+                data, runner, manager, scripts, _ = self.make_data(
+                    tmp, {"recommendation": {"retract_length_mm": 1.2}},
+                    kind=kind)
+                manager.can_start = False
+                manager.dataset = None
+                run = data.run_sweep if kind == "retract" else data.run_pa_sweep
+                payload = RETRACT_PAYLOAD if kind == "retract" else PA_PAYLOAD
+                with self.assertRaises(ValueError) as raised:
+                    run(dict(payload))
+                self.assertIn("Live-Daten", str(raised.exception))
+                # Nothing was sent and no capture was taken over.
+                self.assertEqual(scripts, [], "%s sweep must not run" % kind)
+                self.assertEqual(manager.started, [])
+                self.assertIsNone(runner.last_apply)
+
+    def test_capture_that_fails_to_start_never_analyzes_stale_data(self):
+        # A recorder that is free but errors on start must not block a sweep
+        # the operator already confirmed - only a busy one does. But the
+        # manager keeps reporting the previous dataset name after a stop, so
+        # the pipeline must not fall back to it: applying a value derived
+        # from an unrelated earlier run is worse than applying nothing.
         with tempfile.TemporaryDirectory() as tmp:
-            data, runner, manager, _, _ = self.make_data(
+            data, runner, manager, scripts, _ = self.make_data(
                 tmp, {"recommendation": {"retract_length_mm": 1.2}})
-            manager.can_start = False
-            manager.dataset = None
+
+            def boom(*args, **kwargs):
+                raise RuntimeError("recorder unavailable")
+
+            manager.start = boom
             data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertEqual(len(scripts), 1, "the sweep itself still runs")
             self.assertTrue(
                 wait_for(lambda: runner.last_apply is not None))
             self.assertEqual(
                 runner.last_apply["reason"], "no_capture_dataset")
+            self.assertFalse(runner.last_apply["applied"])
+            # Nothing beyond the sweep script reached the printer.
+            self.assertEqual(len(scripts), 1)
 
 
 if __name__ == "__main__":

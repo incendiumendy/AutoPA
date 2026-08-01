@@ -297,6 +297,9 @@ See [supervised firmware-retraction sweep](docs/RETRACT_SWEEP.md).
 - Context-assisted PA is also fail-closed: only an eligible feature marker
   whose Klipper `print_time` has been reached may open a PA evidence window.
 - Recording and dry-run never change PA or retraction.
+- Every apply is runtime-only. `SAVE_CONFIG` is offered as one
+  explicit, separately confirmed action in the dashboard, gated on
+  standby, and is never reached by the automatic pipeline.
 - Analysis will first return a recommendation with confidence and per-cycle
   evidence.
 - Experimental live application is separately enabled, transiently armed,

@@ -941,6 +941,11 @@ export default function Home() {
   const [paKStop, setPaKStop] = useState("0.09");
   const [paKStep, setPaKStep] = useState("0.01");
   const [paCycles, setPaCycles] = useState("5");
+  // Without a prime every stage starts from whatever the previous one
+  // left in the nozzle, and a long retraction leaves it empty. The
+  // generator also re-primes between candidates so the error cannot
+  // compound down the sweep.
+  const [primeE, setPrimeE] = useState("10");
   const [paConfirming, setPaConfirming] = useState(false);
   const [paBusy, setPaBusy] = useState(false);
   const [paMessage, setPaMessage] = useState("");
@@ -949,6 +954,9 @@ export default function Home() {
   const [speedVStop, setSpeedVStop] = useState("60");
   const [speedVStep, setSpeedVStep] = useState("10");
   const [speedConfirming, setSpeedConfirming] = useState(false);
+  const [saveConfirming, setSaveConfirming] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -1282,6 +1290,32 @@ export default function Home() {
     }
   };
 
+  const postSaveConfig = async () => {
+    setSaveBusy(true);
+    setSaveMessage("");
+    try {
+      const response = await fetch("api/save-config", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phrase: ARM_PHRASE }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Speichern abgelehnt");
+      setSaveMessage(
+        "SAVE_CONFIG gesendet. Klipper startet neu — das Dashboard verliert" +
+          " kurz die Verbindung und meldet sich von selbst zurück.",
+      );
+      setSaveConfirming(false);
+    } catch (error) {
+      setSaveMessage(
+        error instanceof Error ? error.message : "Speichern fehlgeschlagen",
+      );
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
   const postPaSweepRun = async () => {
     setPaBusy(true);
     setPaMessage("");
@@ -1296,6 +1330,7 @@ export default function Home() {
           k_stop: Number(paKStop),
           k_step: Number(paKStep),
           cycles: Number(paCycles),
+          prime_e: Number(primeE),
         }),
       });
       const result = await response.json();
@@ -1333,6 +1368,7 @@ export default function Home() {
                 v_stop: Number(speedVStop),
                 v_step: Number(speedVStep),
                 cycles: Number(sweepCycles),
+                prime_e: Number(primeE),
                 // A speed result is reported as retract_speed_mm_s, which the
                 // apply pipeline does not know how to send, so it would skip
                 // anyway. Saying so explicitly keeps the intent readable.
@@ -1344,6 +1380,7 @@ export default function Home() {
                 r_stop: Number(sweepRStop),
                 r_step: Number(sweepRStep),
                 cycles: Number(sweepCycles),
+                prime_e: Number(primeE),
               },
         ),
       });
@@ -1396,6 +1433,16 @@ export default function Home() {
     status.printer.pressureAdvance,
     status.printer.retractLength,
   ]);
+
+  const saveConfirmSummary = useMemo(
+    () =>
+      `SAVE_CONFIG schreibt die aktuell aktiven Werte in die printer.cfg: Pressure Advance ${formatNumber(status.printer.pressureAdvance, 3)}, Rückzug ${formatNumber(status.printer.retractLength, 2)} mm bei ${formatNumber(status.printer.retractSpeed, 0)} mm/s. Klipper schreibt die Datei um und startet danach neu. Das lässt sich nur rückgängig machen, indem du die Datei selbst wieder änderst. Wirklich speichern?`,
+    [
+      status.printer.pressureAdvance,
+      status.printer.retractLength,
+      status.printer.retractSpeed,
+    ],
+  );
 
   const paConfirmSummary = useMemo(() => {
     const values = countSweepValues(paKStart, paKStop, paKStep);
@@ -1673,6 +1720,49 @@ export default function Home() {
                 Lege eine Auffangmöglichkeit unter die Düse. Jede Stufe stellt
                 den Ausgangswert am Ende selbst wieder her.
               </p>
+              <p className="card-intro">
+                <strong>Vorfüllen</strong> gilt für alle Stufen: Vor dem ersten
+                Messzyklus <em>und</em> zwischen je zwei Kandidatenwerten wird
+                die Düse neu gefüllt. Ohne das startet jeder Wert aus dem
+                Zustand, den der vorige hinterlassen hat — ein langer Rückzug
+                leert die Kammer, der nächste Wert misst dann ins Leere und der
+                Fehler schaukelt sich über den Sweep auf.
+              </p>
+
+              <div className="field-group two">
+                <label>
+                  Vorfüllen
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      step="1"
+                      value={primeE}
+                      onChange={(event) => setPrimeE(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Live-Daten
+                  <span className="field-hint">
+                    {status.capture.manager?.active
+                      ? "laufen — Sweep gesperrt"
+                      : "aus — Sweep möglich"}
+                  </span>
+                </label>
+              </div>
+
+              {status.capture.manager?.active && (
+                <p className="control-note warn">
+                  Die Live-Aufnahme läuft. Ein Sweep braucht eine{" "}
+                  <strong>eigene</strong> Aufnahme, sonst gibt es hinterher
+                  keine auswertbaren Marker. Schalte die Live-Daten oben aus,
+                  bevor du eine Stufe startest — der Server weist den Start
+                  sonst ab.
+                </p>
+              )}
 
               <div className="phase-divider">
                 <span>Stufe 1 · Pressure Advance</span>
@@ -2253,6 +2343,65 @@ export default function Home() {
                 <p className="control-error">{status.control.lastError}</p>
               )}
 
+              <div className="phase-divider">
+                <span>Dauerhaft speichern · optional</span>
+              </div>
+
+              <p className="control-note">
+                Alle Übernahmen oben gelten nur zur Laufzeit. Nach einem
+                Klipper-Neustart stehen wieder die Werte aus deiner
+                Konfigurationsdatei. Aktuell aktiv: PA{" "}
+                {formatNumber(status.printer.pressureAdvance, 3)}, Rückzug{" "}
+                {formatNumber(status.printer.retractLength, 2)} mm bei{" "}
+                {formatNumber(status.printer.retractSpeed, 0)} mm/s.
+              </p>
+              <p className="control-note warn">
+                <strong>SAVE_CONFIG schreibt deine `printer.cfg` um und
+                startet Klipper neu.</strong> Klipper legt die Werte in seinem
+                Autosave-Block ab; bei geschichteten Konfigurationen wie RatOS
+                kann das mit eigenen Einträgen kollidieren. Nur im Standby
+                möglich. Prüfe vorher, dass die aktiven Werte wirklich die
+                sind, die du behalten willst.
+              </p>
+
+              {saveConfirming ? (
+                <div className="confirm-box">
+                  <p>{saveConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="danger-button"
+                      disabled={saveBusy}
+                      onClick={postSaveConfig}
+                    >
+                      Ja, speichern und neu starten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setSaveConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={
+                      saveBusy ||
+                      !status.sweep.allowPrinterCommands ||
+                      status.printer.printState !== "standby"
+                    }
+                    onClick={() => setSaveConfirming(true)}
+                  >
+                    SAVE_CONFIG …
+                  </button>
+                </div>
+              )}
+              {saveMessage && <p className="control-message">{saveMessage}</p>}
             </article>
           </div>
 

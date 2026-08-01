@@ -91,6 +91,7 @@ class RetractSweepRunner:
         self.last_run = None
         self.last_error = None
         self.last_apply = None
+        self.last_save = None
 
     def _moonraker_script(self, script):
         return _moonraker_post(
@@ -161,6 +162,7 @@ class RetractSweepRunner:
             "lastRun": self.last_run,
             "lastError": self.last_error,
             "lastApply": self.last_apply,
+            "lastSave": self.last_save,
             "printerAction": "none",
         }
 
@@ -278,6 +280,37 @@ class RetractSweepRunner:
             "source": source,
             "at": applied_at,
             "printerAction": "set_retraction_runtime_only",
+        }
+        return self.status()
+
+    def save_config(self, payload, printer_status=None):
+        """Persist the current runtime values through Klipper's SAVE_CONFIG.
+
+        This is the one place AutoPA writes to printer.cfg, and it is opt-in
+        per call. SAVE_CONFIG rewrites the config file and restarts Klipper,
+        so it is gated on standby, the confirmation phrase and the same
+        server-side command lock as every other printer action.
+        """
+        if not isinstance(payload, dict):
+            raise ValueError("save settings must be an object")
+        if str(payload.get("phrase", "")) != ARM_PHRASE:
+            raise ValueError("confirmation phrase does not match")
+        if not self.allow_printer_commands:
+            raise PermissionError("printer commands are server-side locked")
+        status = (
+            printer_status if printer_status is not None
+            else self._printer_status())
+        print_state = (status.get("print_stats") or {}).get("state")
+        if print_state != "standby":
+            # SAVE_CONFIG restarts the firmware. Doing that during a print
+            # would abort it.
+            raise ValueError(
+                "printer must be in standby, not %s" % (print_state or "?"))
+        self._send_script("SAVE_CONFIG")
+        self.last_save = {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "restarted": True,
+            "printerAction": "save_config_and_restart",
         }
         return self.status()
 

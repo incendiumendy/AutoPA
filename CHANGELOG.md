@@ -84,6 +84,36 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Vorfüllen zwischen den Kandidatenwerten: Beide Sweeps füllen die Düse
+  jetzt nicht nur vor dem ersten Zyklus, sondern auch zwischen je zwei
+  Werten neu. Ohne das startet jeder Kandidat aus dem Zustand des vorigen —
+  ein langer Rückzug leert die Kammer, der nächste Wert misst ins Leere und
+  der Fehler schaukelt sich auf. Genau daran scheiterte ein Längen-Sweep ab
+  0,6 mm mit `pressure_amplitude_below_3x_noise_mad`. Das Prime-Feld ist
+  jetzt auch im Dashboard vorhanden (Standard 10 mm); zuvor sendete es
+  immer 0.
+
+- Ein Sweep bricht jetzt ab, **bevor** der Drucker sich bewegt, wenn bereits
+  eine Messung läuft. Er konnte seine eigene Aufnahme dann nicht anlegen und
+  lieferte hinterher `no_capture_dataset` — nach vollem Lauf mit
+  verbrauchtem Filament.
+
+- Die Pipeline wertet nur noch Datensätze aus, die der Sweep selbst gestartet
+  hat. Der Capture-Manager meldet nach dem Stoppen weiter den vorherigen
+  Datensatznamen; ohne diese Prüfung hätte ein Sweep mit fehlgeschlagenem
+  Recorder die Daten des vorherigen Laufs ausgewertet und dessen Empfehlung
+  übernommen.
+
+- Die Rückzugsanalyse weist Datensätze zurück, die einen Längen- und einen
+  Geschwindigkeits-Sweep enthalten. Zuvor galt der erste Modus-Marker für den
+  ganzen Datensatz — Geschwindigkeiten von 20–60 mm/s wären als Rückzugslängen
+  gerankt worden.
+
+- `SAVE_CONFIG` im Dashboard: einzeln bestätigte, ausdrücklich angeforderte
+  Möglichkeit, die aktiven Laufzeitwerte dauerhaft zu schreiben. Nur im
+  Standby, mit Bestätigungsdialog, der den Klipper-Neustart benennt. Die
+  automatische Pipeline erreicht diesen Pfad nie.
+
 - Ergebnis-Anzeige je Kalibrierstufe: Jede Stufe zeigt jetzt, was mit ihrer
   Empfehlung geschehen ist — übernommen (mit Vorher/Nachher und dem Hinweis,
   dass es nur zur Laufzeit gilt), abgelehnt samt Grund und Grenze, oder als
@@ -247,6 +277,32 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- reprime between candidates: both sweeps now refill the nozzle not only
+  before the first cycle but between every pair of values. Without it each
+  candidate starts from whatever the previous one left behind - a long
+  retraction empties the chamber, the next value measures into a void and the
+  error compounds. That is exactly how a length sweep lost everything from
+  0.6 mm upwards to `pressure_amplitude_below_3x_noise_mad`. The prime field
+  now exists in the dashboard too (default 10 mm); it previously always sent
+  zero.
+
+- a sweep now refuses **before** the printer moves when a capture is already
+  running. It could not create its own recording in that case and reported
+  `no_capture_dataset` afterwards - after a full run and wasted filament.
+
+- the pipeline only analyzes datasets the sweep started itself. The capture
+  manager keeps reporting the previous dataset name after a stop, so without
+  this check a sweep whose recorder failed to start would have analyzed the
+  previous run's data and applied its recommendation.
+
+- the retraction analysis rejects datasets holding both a length and a speed
+  sweep. The first mode marker used to apply to the whole dataset, so speeds
+  of 20-60 mm/s would have been ranked as retract lengths.
+
+- `SAVE_CONFIG` in the dashboard: a separately confirmed, explicitly
+  requested way to persist the active runtime values. Standby only, behind a
+  dialog naming the Klipper restart. The automatic pipeline never reaches it.
 
 - per-stage result line: every calibration stage now shows what happened to
   its recommendation - applied, with before/after and the note that it only
