@@ -11,8 +11,8 @@ import time
 
 from .adaptive import ARM_PHRASE
 from .apply_policy import apply_decision, validated_apply_bound
-from .retract_runner import MAX_SCRIPT_LINES, MAX_VALUES, _finite, \
-    _moonraker_post
+from .retract_runner import MAX_SCRIPT_LINES, MAX_VALUES, _current_z, \
+    _finite, _moonraker_post, _require_homed
 from .sweep import build_sweep, decimal_range, validated_position
 
 
@@ -28,10 +28,15 @@ class PaSweepRunner:
     """Single-shot PA sweep runner; it never starts during an active print."""
 
     def __init__(self, moonraker_url="http://127.0.0.1:7125",
-                 allow_printer_commands=False, send_script=None):
+                 allow_printer_commands=False, send_script=None,
+                 script_timeout=5.0):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.allow_printer_commands = bool(allow_printer_commands)
         self._send_script = send_script or self._moonraker_script
+        # Moonraker answers a gcode/script request only after Klipper has
+        # processed the whole script, so the timeout is raised to the
+        # estimated sweep duration before every send.
+        self._script_timeout = float(script_timeout)
         self.last_run = None
         self.last_error = None
         self.last_apply = None
@@ -39,14 +44,14 @@ class PaSweepRunner:
     def _moonraker_script(self, script):
         return _moonraker_post(
             self.moonraker_url + "/printer/gcode/script",
-            {"script": script})
+            {"script": script}, timeout=self._script_timeout)
 
     def _printer_status(self):
         import json
         import urllib.request
         request = urllib.request.Request(
             self.moonraker_url
-            + "/printer/objects/query?print_stats&extruder",
+            + "/printer/objects/query?print_stats&extruder&toolhead",
             headers={"Accept": "application/json"})
         with urllib.request.urlopen(request, timeout=1.5) as response:
             payload = json.load(response)
@@ -102,6 +107,7 @@ class PaSweepRunner:
         if print_state != "standby":
             raise ValueError(
                 "printer must be in standby, not %s" % (print_state or "?"))
+        _require_homed(status)
         extruder = status.get("extruder") or {}
         restore_advance = extruder.get("pressure_advance")
         if not _finite(restore_advance) or not 0.0 <= restore_advance <= 0.2:
@@ -118,11 +124,14 @@ class PaSweepRunner:
             k_values, values["cycles"],
             restore_advance=float(restore_advance),
             start_x=position["start_x"], start_y=position["start_y"],
-            start_z=position["start_z"], prime_e=position["prime_e"])
+            start_z=position["start_z"], prime_e=position["prime_e"],
+            current_z=_current_z(status))
         lines = gcode.splitlines()
         if len(lines) > MAX_SCRIPT_LINES:
             raise ValueError("generated sweep is unexpectedly large")
 
+        self._script_timeout = min(
+            max(plan["estimated_sweep_duration_s"] + 120.0, 60.0), 900.0)
         self._send_script(gcode)
         self.last_run = {
             "startedAt": time.strftime(
@@ -132,6 +141,7 @@ class PaSweepRunner:
             "restoreAdvance": float(restore_advance),
             "startZMm": position["start_z"],
             "primeEMm": position["prime_e"],
+            "zLift": bool(plan.get("z_lift")),
             "estimatedDurationS": plan["estimated_sweep_duration_s"],
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),

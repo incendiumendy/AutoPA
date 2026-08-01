@@ -46,11 +46,12 @@ Werkzeuge sichtbar getrennt und es gibt keine doppelte Local-Vision-Anzeige.
 
 Die Kachel enthält außerdem einen kompakten Kalibrierungs-Block für
 Firmware-Rückzug (mm) und Pressure Advance (K). Beide Sweeps werden direkt
-aus der Kachel an Moonraker gesendet, ohne G-Code-Datei. Sie erfordern die
-Bestätigungsphrase, den Druckerzustand `standby` und das serverseitige
-Opt-in-Flag; während eines Drucks ist der Block sichtbar gesperrt und der
-Server lehnt zusätzlich ab. Der zum Laufbeginn aktive Rückzugs- bzw. PA-Wert
-wird am Ende automatisch wiederhergestellt.
+aus der Kachel an Moonraker gesendet, ohne G-Code-Datei. Sie erfordern eine
+ausdrückliche Bestätigung über eine Box mit Zusammenfassung des Laufs
+(„Ja, starten" / „Abbrechen"), den Druckerzustand `standby`, gehomte Achsen
+und das serverseitige Opt-in-Flag; während eines Drucks ist der Block
+sichtbar gesperrt und der Server lehnt zusätzlich ab. Der zum Laufbeginn
+aktive Rückzugs- bzw. PA-Wert wird am Ende automatisch wiederhergestellt.
 
 Über die Felder **Ziel-Z** (10–300 mm) und **Prime** (0–20 mm E) hebt der
 Sweep die Düse vor dem Start auf eine sichere Höhe — 50 mm halten den
@@ -168,10 +169,11 @@ Local Vision row.
 
 The tile also contains a compact calibration block for firmware retraction (mm)
 and pressure advance (K). Both sweeps are sent straight to Moonraker without a
-G-code file. They require the confirmation phrase, the printer state `standby`
-and the server-side opt-in flag; during a print the block is visibly locked and
-the server refuses as well. The retraction or PA value active at run start is
-restored automatically at the end.
+G-code file. They require an explicit confirmation through a box summarizing
+the run ("Yes, start" / "Cancel"), the printer state `standby`, homed axes
+and the server-side opt-in flag; during a print the block is visibly locked
+and the server refuses as well. The retraction or PA value active at run
+start is restored automatically at the end.
 
 The **Target Z** (10–300 mm) and **Prime** (0–20 mm E) fields lift the nozzle
 to a safe height before anything is extruded — 50 mm keeps the filament pile

@@ -129,21 +129,32 @@
                     </label>
                 </div>
                 <div class="autopa-sweeps-arm">
-                    <input
-                        v-model="sweepPhrase"
-                        type="text"
-                        class="autopa-phrase"
-                        :placeholder="armPhrase"
-                        :aria-label="labels.sweepPhraseAria"
-                        autocomplete="off"
-                        spellcheck="false" />
                     <button
                         type="button"
                         class="autopa-send"
                         :disabled="sweepSendDisabled"
-                        @click="sendSweep">
+                        @click="askSweep">
                         {{ labels.sweepSend }}
                     </button>
+                </div>
+                <div v-if="sweepConfirming" class="autopa-sweep-confirm">
+                    <p>{{ sweepConfirmSummary }}</p>
+                    <div class="autopa-sweep-confirm-actions">
+                        <button
+                            type="button"
+                            class="autopa-confirm-yes"
+                            :disabled="sweepBusy"
+                            @click="confirmSweep">
+                            {{ labels.sweepConfirmYes }}
+                        </button>
+                        <button
+                            type="button"
+                            class="autopa-confirm-no"
+                            :disabled="sweepBusy"
+                            @click="cancelSweep">
+                            {{ labels.sweepConfirmNo }}
+                        </button>
+                    </div>
                 </div>
                 <p v-if="sweepLockReason" class="autopa-sweep-note locked">
                     {{ sweepLockReason }}
@@ -369,7 +380,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     sweepAutoApply = true
     retractApplyBound = '1.5'
     paApplyBound = '0.09'
-    sweepPhrase = ''
+    sweepConfirming = false
     sweepBusy = false
     sweepMessage = ''
     sweepError = ''
@@ -424,11 +435,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepStep: 'Schritt',
                   sweepCycles: 'Zyklen',
                   sweepSend: 'Senden',
+                  sweepConfirmYes: 'Ja, starten',
+                  sweepConfirmNo: 'Abbrechen',
                   sweepReady: 'Bereit',
                   sweepLockedShort: 'Gesperrt',
                   sweepLockedServer: 'Server-seitig gesperrt.',
                   sweepRestore: 'Restore am Ende',
-                  sweepPhraseAria: 'Bestätigung für den Sweep',
                   sweepSent: 'Sweep an den Drucker gesendet.',
                   sweepInvalid: 'Bitte gültige Zahlen eingeben.',
                   sweepLastRun: 'Letzter Lauf',
@@ -474,11 +486,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepStep: 'Step',
                   sweepCycles: 'Cycles',
                   sweepSend: 'Send',
+                  sweepConfirmYes: 'Yes, start',
+                  sweepConfirmNo: 'Cancel',
                   sweepReady: 'Ready',
                   sweepLockedShort: 'Locked',
                   sweepLockedServer: 'Locked server-side.',
                   sweepRestore: 'Restore at the end',
-                  sweepPhraseAria: 'Sweep confirmation',
                   sweepSent: 'Sweep sent to the printer.',
                   sweepInvalid: 'Please enter valid numbers.',
                   sweepLastRun: 'Last run',
@@ -793,12 +806,22 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     }
 
     get sweepSendDisabled() {
-        return (
-            this.sweepBusy ||
-            !this.status ||
-            !this.sweepReady ||
-            this.sweepPhrase !== this.armPhrase
-        )
+        return this.sweepBusy || !this.status || !this.sweepReady
+    }
+
+    get sweepConfirmSummary() {
+        const params = this.sweepParams
+        const apply = this.sweepAutoApply
+            ? this.isGerman
+                ? `Auto-Übernahme ±${this.sweepApplyBound} ${this.sweepUnit}`
+                : `auto-apply ±${this.sweepApplyBound} ${this.sweepUnit}`
+            : this.isGerman
+                ? 'ohne Auto-Übernahme'
+                : 'without auto-apply'
+        const range = `${params.from}–${params.to} ${this.sweepUnit}`
+        return this.isGerman
+            ? `${this.sweepsTitleText}: ${range}, ${params.cycles} Zyklen, ${apply}. Wirklich starten?`
+            : `${this.sweepsTitleText}: ${range}, ${params.cycles} cycles, ${apply}. Really start?`
     }
 
     get sweepLastRunLabel() {
@@ -926,6 +949,23 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
         this.sweepKind = kind
         this.sweepMessage = ''
         this.sweepError = ''
+        this.sweepConfirming = false
+    }
+
+    askSweep() {
+        if (this.sweepSendDisabled) return
+        this.sweepMessage = ''
+        this.sweepError = ''
+        this.sweepConfirming = true
+    }
+
+    cancelSweep() {
+        this.sweepConfirming = false
+    }
+
+    async confirmSweep() {
+        this.sweepConfirming = false
+        await this.sendSweep()
     }
 
     async refreshSweeps() {
@@ -984,7 +1024,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             const payload =
                 this.sweepKind === 'retract'
                     ? {
-                          phrase: this.sweepPhrase,
+                          phrase: this.armPhrase,
                           r_start: values[0],
                           r_stop: values[1],
                           r_step: values[2],
@@ -993,7 +1033,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                           ...extras,
                       }
                     : {
-                          phrase: this.sweepPhrase,
+                          phrase: this.armPhrase,
                           k_start: values[0],
                           k_stop: values[1],
                           k_step: values[2],
@@ -1021,7 +1061,6 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                 throw new Error(body.error ?? `HTTP ${response.status}`)
             }
             this.sweepMessage = this.labels.sweepSent
-            this.sweepPhrase = ''
             await this.refreshSweeps()
         } catch (error) {
             this.sweepError = error instanceof Error ? error.message : String(error)
@@ -1264,20 +1303,48 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     accent-color: var(--v-primary-base);
 }
 
-.autopa-phrase {
+.autopa-sweep-confirm {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 152, 0, 0.45);
+    border-radius: 4px;
+    background: rgba(255, 152, 0, 0.08);
+}
+
+.autopa-sweep-confirm p {
+    margin: 0 0 6px;
+    font-size: 0.68rem;
+}
+
+.autopa-sweep-confirm-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.autopa-confirm-yes {
     flex: 1;
-    min-width: 0;
-    padding: 3px 6px;
-    border: 1px dashed rgba(128, 128, 128, 0.35);
+    padding: 3px 10px;
+    border: 0;
+    border-radius: 3px;
+    background: var(--v-primary-base);
+    color: #fff;
+    font-size: 0.68rem;
+    cursor: pointer;
+}
+
+.autopa-confirm-no {
+    flex: 1;
+    padding: 3px 10px;
+    border: 1px solid rgba(128, 128, 128, 0.35);
     border-radius: 3px;
     background: transparent;
     color: inherit;
     font-size: 0.68rem;
-    letter-spacing: 0.04em;
+    cursor: pointer;
 }
 
 .autopa-send {
-    flex: 0 0 auto;
+    flex: 1;
     padding: 3px 12px;
     border: 0;
     border-radius: 3px;

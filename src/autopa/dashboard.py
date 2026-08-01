@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import threading
 
 from .adaptive import AdaptiveController
+from .align import align_dataset
 from .analyze import analyze_dataset
 from .capture_manager import CaptureManager
 from .chamber_filter import ChamberFilterController
@@ -228,7 +229,7 @@ class DashboardData:
                  capture_manager=None, chamber_filter=None,
                  sweep_runner=None, pa_sweep_runner=None,
                  quality_fn=None, retract_analyzer=None, pa_analyzer=None,
-                 sleep_fn=None):
+                 sleep_fn=None, align_fn=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
@@ -240,6 +241,7 @@ class DashboardData:
         self.retract_analyzer = retract_analyzer or analyze_retract_dataset
         self.pa_analyzer = pa_analyzer or analyze_dataset
         self.sleep_fn = sleep_fn or time.sleep
+        self.align_fn = align_fn or align_dataset
 
     def sweep_status(self):
         return (
@@ -323,7 +325,9 @@ class DashboardData:
             return
         duration = last_run.get("estimatedDurationS") or 0.0
         try:
-            wait = min(max(float(duration), 0.0) + 20.0, 900.0)
+            # The estimate excludes the positioning preamble, so keep a
+            # generous margin before stopping the capture.
+            wait = min(max(float(duration), 0.0) + 90.0, 900.0)
         except (TypeError, ValueError):
             wait = 900.0
         thread = threading.Thread(
@@ -349,9 +353,11 @@ class DashboardData:
                 return
             source = os.path.basename(dataset_dir)
             try:
+                self.align_fn(dataset_dir)
                 self.quality_fn(dataset_dir)
             except Exception:
-                # A missing quality gate fails the analysis closed.
+                # A missing alignment or quality gate fails the analysis
+                # closed.
                 pass
             result = analyzer(dataset_dir) or {}
             recommendation = result.get("recommendation")

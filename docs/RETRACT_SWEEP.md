@@ -121,8 +121,13 @@ to `false` and `printer_action` to `none` — it never touches the printer.
 
 When a sweep is started from the dashboard or the Mainsail tile with
 auto-apply enabled (the default), the service automatically captures the
-sweep, runs the quality gate and the analysis, and applies the
-recommendation **at runtime only** when it stays within the deviation limit:
+sweep, runs the time alignment, the quality gate and the analysis, and
+applies the recommendation **at runtime only** when it stays within the
+deviation limit. Before every run the runner requires homed X/Y/Z axes; a
+known sufficient nozzle gap skips the Z lift entirely. The quality gate
+tolerates USB bulk batching of the kHz force stream (arrival RMS and gaps
+up to 25 ms) because the alignment step reconstructs print time from a
+uniform sample-index grid rather than from raw arrival times.
 
 | Sweep | Runtime command | Default limit | Hard cap |
 | --- | --- | --- | --- |

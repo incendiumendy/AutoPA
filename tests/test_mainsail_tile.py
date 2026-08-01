@@ -135,6 +135,12 @@ class MainsailTileTests(unittest.TestCase):
             self.assertIn("Auto-Übernahme", panel)
             self.assertIn("Auto-apply", panel)
             self.assertIn("lastApply", panel)
+            self.assertIn("autopa-sweep-confirm", panel)
+            self.assertIn("sweepConfirmSummary", panel)
+            self.assertIn("confirmSweep", panel)
+            self.assertIn("cancelSweep", panel)
+            self.assertIn("phrase: this.armPhrase", panel)
+            self.assertNotIn("sweepPhrase", panel)
             self.assertIn("/local-vision/api/health", localvision_panel)
             self.assertIn("/local-vision/api/config", localvision_panel)
             self.assertIn(

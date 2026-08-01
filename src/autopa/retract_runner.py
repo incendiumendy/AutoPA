@@ -34,6 +34,26 @@ def _finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
+def _current_z(status):
+    """Return the live toolhead Z position when Klipper reports it."""
+    position = (status.get("toolhead") or {}).get("position")
+    if (isinstance(position, (list, tuple)) and len(position) >= 3
+            and _finite(position[2])):
+        return float(position[2])
+    return None
+
+
+def _require_homed(status):
+    """Refuse the sweep when Klipper reports unhomed axes."""
+    homed = (status.get("toolhead") or {}).get("homed_axes")
+    if homed is None:
+        return
+    if not all(axis in str(homed).lower() for axis in "xyz"):
+        raise ValueError(
+            "printer must be homed first (G28), homed axes: %s"
+            % (homed or "none"))
+
+
 def _moonraker_post(url, payload, timeout=5.0):
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -47,10 +67,15 @@ class RetractSweepRunner:
     """Single-shot sweep runner; it never starts during an active print."""
 
     def __init__(self, moonraker_url="http://127.0.0.1:7125",
-                 allow_printer_commands=False, send_script=None):
+                 allow_printer_commands=False, send_script=None,
+                 script_timeout=5.0):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.allow_printer_commands = bool(allow_printer_commands)
         self._send_script = send_script or self._moonraker_script
+        # Moonraker answers a gcode/script request only after Klipper has
+        # processed the whole script, so the timeout is raised to the
+        # estimated sweep duration before every send.
+        self._script_timeout = float(script_timeout)
         self.last_run = None
         self.last_error = None
         self.last_apply = None
@@ -58,12 +83,13 @@ class RetractSweepRunner:
     def _moonraker_script(self, script):
         return _moonraker_post(
             self.moonraker_url + "/printer/gcode/script",
-            {"script": script})
+            {"script": script}, timeout=self._script_timeout)
 
     def _printer_status(self):
         request = urllib.request.Request(
             self.moonraker_url
-            + "/printer/objects/query?print_stats&firmware_retraction",
+            + "/printer/objects/query?print_stats&firmware_retraction"
+            + "&toolhead",
             headers={"Accept": "application/json"})
         with urllib.request.urlopen(request, timeout=1.5) as response:
             payload = json.load(response)
@@ -119,6 +145,7 @@ class RetractSweepRunner:
         if print_state != "standby":
             raise ValueError(
                 "printer must be in standby, not %s" % (print_state or "?"))
+        _require_homed(status)
         retraction = status.get("firmware_retraction") or {}
         restore_retract = retraction.get("retract_length")
         if not _finite(restore_retract):
@@ -139,11 +166,14 @@ class RetractSweepRunner:
             retract_speed=float(retract_speed),
             restore_retract=float(restore_retract),
             start_x=position["start_x"], start_y=position["start_y"],
-            start_z=position["start_z"], prime_e=position["prime_e"])
+            start_z=position["start_z"], prime_e=position["prime_e"],
+            current_z=_current_z(status))
         lines = gcode.splitlines()
         if len(lines) > MAX_SCRIPT_LINES:
             raise ValueError("generated sweep is unexpectedly large")
 
+        self._script_timeout = min(
+            max(plan["estimated_sweep_duration_s"] + 120.0, 60.0), 900.0)
         self._send_script(gcode)
         self.last_run = {
             "startedAt": time.strftime(
@@ -153,6 +183,7 @@ class RetractSweepRunner:
             "restoreRetractMm": float(restore_retract),
             "startZMm": position["start_z"],
             "primeEMm": position["prime_e"],
+            "zLift": bool(plan.get("z_lift")),
             "estimatedDurationS": plan["estimated_sweep_duration_s"],
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),

@@ -3,12 +3,18 @@ import unittest
 from autopa.retract_runner import RetractSweepRunner
 
 
-def printer_status(state="standby", retract_length=0.5, retract_speed=120.0):
+def printer_status(state="standby", retract_length=0.5, retract_speed=120.0,
+                   current_z=None, homed_axes=None):
     status = {"print_stats": {"state": state}}
     if retract_length is not None:
         status["firmware_retraction"] = {
             "retract_length": retract_length,
             "retract_speed": retract_speed,
+        }
+    if current_z is not None or homed_axes is not None:
+        status["toolhead"] = {
+            "position": [100.0, 100.0, current_z or 0.0, 0.0],
+            "homed_axes": "xyz" if homed_axes is None else homed_axes,
         }
     return status
 
@@ -183,6 +189,55 @@ class RetractSweepRunnerTest(unittest.TestCase):
         self.assertFalse(apply["applied"])
         self.assertEqual(apply["reason"], "no_recommendation")
         self.assertEqual(apply["printerAction"], "none")
+
+    def test_z_lift_is_skipped_when_gap_is_already_sufficient(self):
+        runner, scripts = self.make_runner()
+        status = runner.run(
+            run_payload(start_z=50.0),
+            printer_status=printer_status(current_z=300.0))
+        self.assertNotIn("G1 Z50.0000", scripts[0])
+        self.assertFalse(status["lastRun"]["zLift"])
+
+    def test_z_lift_moves_only_when_gap_is_too_small(self):
+        runner, scripts = self.make_runner()
+        status = runner.run(
+            run_payload(start_z=50.0),
+            printer_status=printer_status(current_z=20.0))
+        self.assertIn("G1 Z50.0000 F600", scripts[0])
+        self.assertTrue(status["lastRun"]["zLift"])
+
+    def test_unknown_z_keeps_the_lift(self):
+        runner, scripts = self.make_runner()
+        status = runner.run(
+            run_payload(start_z=50.0),
+            printer_status=printer_status())
+        self.assertIn("G1 Z50.0000 F600", scripts[0])
+        self.assertTrue(status["lastRun"]["zLift"])
+
+    def test_script_timeout_covers_the_sweep_duration(self):
+        runner, _ = self.make_runner()
+        status = runner.run(run_payload(), printer_status=printer_status())
+        expected = min(
+            max(status["lastRun"]["estimatedDurationS"] + 120.0, 60.0),
+            900.0)
+        self.assertEqual(runner._script_timeout, expected)
+
+    def test_unhomed_printer_is_rejected_before_sending(self):
+        runner, scripts = self.make_runner()
+        for homed_axes in ("", "xy", "z"):
+            with self.assertRaises(ValueError) as raised:
+                runner.run(
+                    run_payload(),
+                    printer_status=printer_status(homed_axes=homed_axes))
+            self.assertIn("homed", str(raised.exception))
+        self.assertEqual(scripts, [])
+
+    def test_fully_homed_printer_is_accepted(self):
+        runner, scripts = self.make_runner()
+        runner.run(
+            run_payload(),
+            printer_status=printer_status(current_z=100.0, homed_axes="xyz"))
+        self.assertEqual(len(scripts), 1)
 
 
 if __name__ == "__main__":

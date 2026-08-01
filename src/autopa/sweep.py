@@ -46,19 +46,33 @@ def validated_position(start_x=None, start_y=None, start_z=None,
 
 
 def build_position_preamble(start_x=None, start_y=None, start_z=None,
-                            prime_e=0.0):
+                            prime_e=0.0, current_z=None):
     """Optional bounded absolute positioning plus a short pressure prime.
 
     Works on printers without a purge container: the caller picks any safe
     spot (catch tray, free drop zone) and the sweep raises Z first so the
     extruded strand can never reach the nozzle again.
+
+    The Z lift is emitted only when it increases the nozzle-to-bed gap:
+    when ``current_z`` is known and already at or above ``start_z``, no Z
+    move is emitted at all, so the bed or gantry never travels toward the
+    nozzle. Returns ``(lines, z_lift)``.
     """
+    if current_z is not None:
+        if (not isinstance(current_z, (int, float))
+                or isinstance(current_z, bool)
+                or not math.isfinite(current_z)):
+            raise ValueError("current_z must be a finite number")
+        current_z = float(current_z)
     pos = validated_position(start_x, start_y, start_z, prime_e)
     lines = []
+    z_lift = False
     if pos["start_z"] is not None:
-        lines.append("G90")
-        lines.append("G1 Z%.4f F600" % pos["start_z"])
-        lines.append("G91")
+        if current_z is None or current_z < pos["start_z"]:
+            lines.append("G90")
+            lines.append("G1 Z%.4f F600" % pos["start_z"])
+            lines.append("G91")
+            z_lift = True
     if pos["start_x"] is not None or pos["start_y"] is not None:
         x_part = " X%.4f" % pos["start_x"] if pos["start_x"] is not None else ""
         y_part = " Y%.4f" % pos["start_y"] if pos["start_y"] is not None else ""
@@ -68,14 +82,15 @@ def build_position_preamble(start_x=None, start_y=None, start_z=None,
     if pos["prime_e"]:
         lines.append("G1 E%.5f F300" % pos["prime_e"])
         lines.append("G4 P500")
-    return lines
+    return lines, z_lift
 
 
 def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
                 slow_duration=1.0, fast_duration=0.25, x_travel=8.0,
                 restore_advance=None, min_z=10.0,
                 target_temperature=None, temperature_tolerance=2.0,
-                start_x=None, start_y=None, start_z=None, prime_e=0.0):
+                start_x=None, start_y=None, start_z=None, prime_e=0.0,
+                current_z=None):
     if not k_values:
         raise ValueError("At least one pressure advance value is required")
     if any(value < 0.0 or value > 0.2 for value in k_values):
@@ -122,7 +137,9 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "M83",
         "G91",
     ]
-    lines.extend(build_position_preamble(start_x, start_y, start_z, prime_e))
+    preamble, z_lift = build_position_preamble(
+        start_x, start_y, start_z, prime_e, current_z=current_z)
+    lines.extend(preamble)
     lines.append("AUTOPA_MARK EVENT=sweep_start VALUE=%.6f" % k_values[0])
     segments = []
     offset = 0.0
@@ -177,6 +194,8 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "start_y_mm": start_y,
         "start_z_mm": start_z,
         "prime_e_mm": prime_e,
+        "current_z_mm": current_z,
+        "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
             len(k_values) * cycles * (slow_e + fast_e) + (prime_e or 0.0)),

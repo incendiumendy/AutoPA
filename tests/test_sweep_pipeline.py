@@ -94,6 +94,7 @@ class SweepPipelineTest(unittest.TestCase):
             kwargs = {"pa_analyzer": analyzer}
         manager = FakeCaptureManager(tmp)
         quality_calls = []
+        align_calls = []
         data = DashboardData(
             "http://127.0.0.1:7125",
             os.path.join(tmp, "live.json"),
@@ -102,13 +103,15 @@ class SweepPipelineTest(unittest.TestCase):
             pa_sweep_runner=runner if kind == "pa" else None,
             quality_fn=lambda dataset_dir: quality_calls.append(dataset_dir),
             sleep_fn=lambda seconds: None,
+            align_fn=lambda dataset_dir: align_calls.append(dataset_dir),
             **kwargs)
-        return data, runner, manager, scripts, quality_calls
+        return data, runner, manager, scripts, (align_calls, quality_calls)
 
     def test_retract_pipeline_applies_within_bound(self):
         with tempfile.TemporaryDirectory() as tmp:
-            data, runner, manager, scripts, quality_calls = self.make_data(
+            data, runner, manager, scripts, calls = self.make_data(
                 tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            align_calls, quality_calls = calls
             data.run_sweep(dict(RETRACT_PAYLOAD))
             self.assertEqual(manager.started, [("standby", "retract-sweep")])
             self.assertTrue(
@@ -120,6 +123,7 @@ class SweepPipelineTest(unittest.TestCase):
             self.assertEqual(manager.stopped, ["sweep_finished"])
             self.assertEqual(
                 scripts[-1], "SET_RETRACTION RETRACT_LENGTH=1.200")
+            self.assertEqual(len(align_calls), 1)
             self.assertEqual(len(quality_calls), 1)
 
     def test_pa_pipeline_applies_within_bound(self):

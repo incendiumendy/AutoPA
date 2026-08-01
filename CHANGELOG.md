@@ -43,6 +43,16 @@
   eindeutiger Auswertung, andernfalls wird der Grund in der Kachel gezeigt
   und nichts verändert.
 
+- vollautomatischer Sweep-Loop im Dienst (Aufnahme → Zeitausrichtung →
+  Qualitäts-Gate → Auswertung → begrenzte Übernahme) mit langem,
+  sweepdeckendem Skript-Timeout; Homing-Vorabprüfung (X/Y/Z) vor jedem
+  Sweep; der Z-Hub entfällt, wenn der Düsenabstand bereits ausreicht, und
+  fährt sonst nur weg von der Düse; das Qualitäts-Gate wertet
+  USB-Batch-Bursts (Ankunfts-RMS bis 25 ms, Lücken bis 25 ms) nicht mehr
+  als Warnung, weil die Ausrichtung Ankunftszeiten durch ein gleichmäßiges
+  Index-Raster ersetzt; die Bestätigungsphrase in der Mainsail-Kachel ist
+  durch eine Bestätigungsbox mit Zusammenfassung ersetzt.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -106,6 +116,16 @@
   `SAVE_CONFIG`) when it stays within the configurable limit (retraction
   ±1.5 mm, PA ±0.09; hard-capped at ±3.0 mm and ±0.2); only on a conclusive
   analysis — otherwise the tile shows the reason and nothing changes.
+
+- fully automatic sweep loop in the service (capture → time alignment →
+  quality gate → analysis → bounded apply) with a long script timeout
+  covering the whole sweep; homing pre-check (X/Y/Z) before every sweep;
+  the Z lift is skipped when the nozzle gap is already sufficient and
+  otherwise only moves away from the nozzle; the quality gate no longer
+  treats USB bulk batching (arrival RMS up to 25 ms, gaps up to 25 ms) as
+  a warning because alignment replaces arrival times with a uniform
+  sample-index grid; the confirmation phrase in the Mainsail tile was
+  replaced by a confirmation box with a run summary.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

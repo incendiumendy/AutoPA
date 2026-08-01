@@ -21,7 +21,7 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
                         retract_speed=35.0, restore_retract=None, min_z=10.0,
                         target_temperature=None, temperature_tolerance=2.0,
                         start_x=None, start_y=None, start_z=None,
-                        prime_e=0.0):
+                        prime_e=0.0, current_z=None):
     if not retract_values:
         raise ValueError("At least one retract length is required")
     if any(value < 0.0 or value > MAX_RETRACT_MM for value in retract_values):
@@ -74,7 +74,9 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "M83",
         "G91",
     ]
-    lines.extend(build_position_preamble(start_x, start_y, start_z, prime_e))
+    preamble, z_lift = build_position_preamble(
+        start_x, start_y, start_z, prime_e, current_z=current_z)
+    lines.extend(preamble)
     lines.append(
         "AUTOPA_MARK EVENT=retract_sweep_start VALUE=%.4f"
         % retract_values[0])
@@ -137,6 +139,8 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "start_y_mm": start_y,
         "start_z_mm": start_z,
         "prime_e_mm": prime_e,
+        "current_z_mm": current_z,
+        "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
             len(retract_values) * cycles * 2.0 * extrude_e
