@@ -4,81 +4,86 @@
 
 [![tests](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml/badge.svg)](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml)
 
-AutoPA zeichnet die Düsenkraft eines Mellow FLY-ALPS zusammen mit der realen
-Werkzeugkopfbeschleunigung eines LIS2DW auf einem EBB42 Gen2 auf. Beide
-Datenströme werden über Klippers `print_time`-Zeitbasis synchronisiert und für
-überwachte, sensorgestützte Pressure-Advance-Messungen verwendet.
+AutoPA zeichnet den Düsendruck eines Mellow FLY-ALPS gemeinsam mit der echten
+Werkzeugkopfbeschleunigung des LIS2DW auf einem EBB42 Gen2 auf. Beide
+Datenströme werden auf Klippers `print_time`-Zeitachse ausgerichtet und dienen
+als Grundlage für beaufsichtigte, sensorgestützte Pressure-Advance-Sweeps.
 
 ![AutoPA-Dashboard mit Drucker-, Sensor- und Messstatus](docs/images/autopa-dashboard.png)
 
-Das optionale lokale Dashboard zeigt Düsenkraft, Bewegung, Temperatur,
-Pressure Advance, Messqualität sowie bearbeitbare Testprofile für
-PLA/ABS/PETG/ASA/TPU. Gegenüber dem Drucker bleibt es absichtlich nur lesend.
-Der Düsendruck wird relativ zum gelernten Nullpunkt auf einer
-`− / 0 / +`-Skala dargestellt. Die Bewegungsanzeige trennt die
-schwerkraftbereinigte X/Y-Richtung und Z-Auslenkung.
-Weitere Informationen stehen in der
-[Dashboard-Dokumentation](docs/DASHBOARD.md).
+Ein optionales lokales Dashboard zeigt Düsendruck, Bewegung, Temperatur,
+Pressure Advance, Messqualität und bearbeitbare Testprofile für PLA, ABS,
+PETG, ASA und TPU in Echtzeit. Sein experimenteller Regler startet
+grundsätzlich als kommandofreier Dry-Run und benötigt zwei voneinander
+unabhängige Freigaben, bevor er begrenzte Änderungen zur Laufzeit vornehmen
+darf. Der Düsendruck erscheint relativ zum gelernten Basiswert auf einer
+vorzeichenbehafteten `− / 0 / +`-Skala; die Bewegungsanzeige trennt die
+schwerkraftbereinigte X/Y-Richtung von der Z-Auslenkung. Siehe
+[lokales Live-Dashboard](docs/DASHBOARD.md).
 
-Der passive Recorder-Manager kann Live-Daten per Klick auch im Standby
-einschalten, sich an einen bereits laufenden oder später beginnenden Druck
-anhängen, ohne offenen Browser weiterlaufen und die synchronisierte
-ALPS-/Bewegungsaufnahme am Druckende sauber stoppen. Beim Ein- oder Ausschalten
-dieser Messung wird kein G-Code an den Drucker gesendet.
+Der passive Recorder-Manager schaltet Live-Daten im Leerlauf per Klick ein,
+hängt sich an einen bereits laufenden oder erst später startenden Druck an,
+läuft ohne geöffneten Browser weiter und beendet die synchronisierte
+ALPS-/Bewegungsaufnahme sauber am Druckende. Das Starten und Stoppen dieser
+Messung sendet keinerlei G-Code an den Drucker.
 
-Materialprofile können außerdem einen getrennt gesperrten, über den Dateinamen
-ausgelösten Klipper-Chamber-Filter mit auswählbarem `fan_generic`, Leistung und
-Nachlaufzeit definieren. Siehe
-[Chamber-Filter-Dokumentation](docs/CHAMBER_FILTER.md).
+Materialprofile können zusätzlich eine eigenständig gesperrte, über den
+Dateinamen ausgelöste Klipper-Kammerfilterregel definieren, mit wählbarem
+`fan_generic`, Leistung und Nachlaufzeit. Siehe
+[Kammerfilter-Dokumentation](docs/CHAMBER_FILTER.md).
 
-AutoPA unterstützt gewöhnliche Klipper/Moonraker-Installationen und RatOS. Es
-ersetzt keine RatOS-Konfigurationsdateien.
+Das Projekt richtet sich sowohl an gewöhnliche Klipper/Moonraker-Installationen
+als auch an RatOS. Es ersetzt keine RatOS-Konfigurationsdateien.
 
-> Status: experimentelles Entwicklungsprojekt. Aufnahme und Zeitsynchronisation
-> wurden auf einem RatOS-Drucker validiert. Automatische PA-Empfehlungen sind
-> noch nicht vollständig validiert und dürfen nicht unbeaufsichtigt übernommen
-> werden.
+> Status: experimentelles Entwicklungsprojekt. Erfassung und Zeitausrichtung
+> sind auf einem RatOS-Drucker validiert. Adaptive PA und Auto-Retract sind
+> noch **nicht** im Druck validiert und müssen zuerst im Dry-Run bewertet
+> werden. Niemals unbeaufsichtigt anwenden.
 
 ## Validierte Hardware
 
 - Rat Rig V-Core 3 300 mit RatOS
-- Mellow FLY-ALPS Firmware `2.0.0`, USB über einen stabilen/aktiven Hub
+- Mellow FLY-ALPS Firmware `2.0.0`, USB über die validierte
+  EBB42-Gen2-Durchleitung oder einen aktiven, stabilen Hub
 - BTT EBB42 Gen2 über USB
 - LIS2DW des EBB42 als `lis2dw toolboard_t0`
-- digitales ALPS-Probe-Signal an EBB42 PA5 (Enable) und PA4 (Trigger)
+- vorhandener digitaler ALPS-Taster an den EBB42-Pins PA5 (Enable) und
+  PA4 (Trigger)
 
-## Empfohlene Architektur
+## Bevorzugte Architektur
 
 ```text
 Raspberry Pi / RatOS oder Klipper
-|- USB-Hub -> Mellow FLY-ALPS mit Werksfirmware
-|             |- USB-CDC-Kraftdatenstrom (~2,6 kHz)
-|             `- digitales Trigger-Signal bleibt mit dem EBB42 verbunden
-`- USB -> EBB42 Gen2
-              |- normale Toolboard-Funktionen
-              `- LIS2DW-Beschleunigungsdaten (~386 Hz)
+`- stabile USB-Anbindung -> EBB USB Adapter -> EBB42 Gen2 (USB-Modus)
+   |- normale Toolboard-Funktionen und LIS2DW-Beschleunigung
+   `- USB-Durchleitung -> Mellow FLY-ALPS mit Werksfirmware
+      |- USB-CDC-Kraftdatenstrom
+      `- digitaler Trigger bleibt mit dem EBB42 verbunden
 ```
 
-Das EBB42 ist ein USB-Gerät und kein USB-Host oder Hub. Das ALPS benötigt daher
-eine eigene USB-Verbindung zum Raspberry Pi oder zu einem guten aktiven Hub.
-Eine passive USB-Verbindung vom ALPS zum USB-Anschluss des EBB42 darf nicht
-gecrimpt werden.
+Die Durchleitung des EBB42 **Gen2** folgt dem gewählten Kommunikationsmodus und
+kann die ALPS-USB-Verbindung mitführen, solange das Board im USB-Modus läuft.
+Genau dieser Pfad wurde mit stabilen EBB42- und ALPS-Geräte-IDs, laufender
+AutoPA-Erfassung und einer zehnminütigen Abbruchüberwachung validiert. Das ist
+keine allgemeine Aussage über ältere EBB-Revisionen. Siehe die zweisprachige
+[Anleitung zur EBB42-Gen2-USB-Durchleitung](docs/EBB42_GEN2_USB_PASSTHROUGH.md).
 
-Die direkte ALPS-Pi-Verbindung war am validierten Drucker instabil. Ein USB-Hub
-stellte den zuverlässigen Betrieb wieder her. Siehe
+Die direkte Verbindung vom ALPS zum Pi war auf der validierten Maschine
+instabil. Ein USB-Hub stellte den zuverlässigen Betrieb wieder her; der später
+geprüfte Weg über die EBB42-Gen2-Durchleitung war ebenfalls stabil. Siehe
 [USB-Stabilität](docs/USB_STABILITY.md).
 
 ## Warum das ALPS nicht geflasht wird
 
-Die öffentliche Mellow-Werksfirmware liefert Kraftmesswerte über USB, während
-der digitale Probe-Ausgang weiter funktioniert. Das wurde vor und nach einer
-gemeinsamen ALPS/LIS2DW-Aufnahme geprüft.
+Die öffentliche Mellow-Firmware liefert Kraftmesswerte über USB, während ihr
+digitaler Tasterausgang weiterhin funktioniert. Das wurde vor und nach einer
+kombinierten zehnsekündigen ALPS-/LIS2DW-Aufnahme überprüft.
 
-Klipper auf das ALPS zu flashen würde das Verhalten des digitalen Probe-Ausgangs
-entfernen. Dieser Pfad bleibt deshalb nur als experimentelle Referenz unter
-`firmware/`, `backport/` und `config/ALPS-load-cell.cfg.example` erhalten. Er
-darf erst verwendet werden, wenn ein vollständiger und unabhängig geprüfter
-`load_cell_probe`-Ersatz oder ein anderer Z-Probe vorhanden ist.
+Klipper auf das ALPS zu flashen würde das Werksverhalten des digitalen Tasters
+entfernen. Dieser Weg bleibt deshalb ausschließlich als experimentelle Referenz
+unter `firmware/`, `backport/` und `config/ALPS-load-cell.cfg.example`
+erhalten. Er darf erst genutzt werden, wenn ein vollständiger und unabhängig
+validierter Ersatz für `load_cell_probe` oder ein anderer Z-Taster vorliegt.
 
 ## Aktuell validiertes Ergebnis
 
@@ -93,65 +98,70 @@ Der erste kombinierte Leerlaufdatensatz ergab:
 | LIS2DW-Abtastrate | 385,87 Hz |
 | LIS2DW-Fehler / Überläufe | 0 / 0 |
 | RMS-Restfehler der Zeitanpassung | 0,0011 ms |
-| maximaler Restfehler | 0,0021 ms |
-| abgeleitete synchronisierte Zeilen | 3.853 |
-| digitaler Probe-Status | unverändert |
+| maximaler Restfehler der Zeitanpassung | 0,0021 ms |
+| abgeleitete ausgerichtete Zeilen | 3.853 |
+| Zustand des digitalen Tasters | unverändert |
 
-Ein zweiter Lauf über fünf Sekunden bestätigte den kompletten Markerpfad:
+Ein zweiter Lauf über fünf Sekunden bestätigte den vollständigen Markerpfad:
 
-- 12.986 Kraft- und 1.944 Beschleunigungsmesswerte
-- keine Fehler oder Überläufe
-- ein `AUTOPA_MARK`-Ereignis in `events.csv`
-- maximaler Restfehler der Zeitanpassung 0,00035 ms
-- Klipper blieb bereit/Standby und der Probe-Status unverändert
+- 12.986 Kraft- und 1.944 Beschleunigungsmesswerte;
+- null Fehler und null Überläufe;
+- ein in `events.csv` erhaltenes `AUTOPA_MARK`-Ereignis;
+- maximaler Restfehler der Zeitanpassung 0,00035 ms;
+- Klipper blieb im Zustand ready/standby, der Tasterzustand unverändert.
 
-Rohdaten des Druckers und lokale Sicherungen werden absichtlich nicht in Git
-gespeichert.
+Rohdatensätze der Maschine und Druckersicherungen bleiben bewusst außerhalb
+von Git.
 
-## Projektstruktur
+## Aufbau des Repositorys
 
 ```text
 src/autopa/
   alps_serial.py     Leser für das Mellow-USB-Protokoll
-  sync_recorder.py   gemeinsame ALPS-/Beschleunigungsmessung
-  align.py           Zuordnung monotone Zeit zu Klipper print_time
-  diagnose.py        bewegungsfreie Live- und Sicherheitsprüfung
-  calibration.py     maschinenspezifische Mehrpunktkalibrierung
-  filament.py        beratende Erkennung von Druckverlust/Filamentfehlern
+  sync_recorder.py   gleichzeitige ALPS-/LIS2DW-Aufnahme
+  align.py           Zuordnung von monotoner Zeit zu Klippers print_time
+  diagnose.py        bewegungslose Live- und Sicherheitsprüfungen
+  calibration.py     maschinenspezifische Mehrpunkt-Kraftkalibrierung
+  filament.py        Hinweis auf verlorenen Extrusionsdruck
   material.py        Filamentkonsistenz und Temperaturvergleich
-  temperature_plan.py sichere Testdateien je Temperatur
-  dashboard.py       lokaler Nur-Lese-Status- und Webserver
-  quality.py         Aufnahme- und Leerlaufdiagnose
-  sweep.py           begrenzter Klipper-PA-Testgenerator
+  temperature_plan.py sichere Sweep-Dateien je Temperatur
+  dashboard.py       lokaler Status- und Regelserver mit Opt-in-Grenzen
+  adaptive.py        Dry-Run-Schätzer und abgesicherter PA-/Rückzugsregler
+  gcode_context.py   sicherer Slicer-Kontextparser und Kopie-Instrumentierung
+  quality.py         Erfassungs- und Leerlaufdiagnose
+  sweep.py           Generator für begrenzte Klipper-PA-Sweeps
 klipper/extras/
-  autopa_clock.py    Zeitbasis, exakte Marker und Sicherheitsprüfung
+  autopa_clock.py    Zeitendpunkt, exakte G-Code-Marker und Sicherheitsprüfung
 config/
   autopa.cfg         minimale Klipper-Einbindung
-docs/                Installation, Protokoll, Kompatibilität und Sicherheit
+docs/                Installation, Protokoll, Kompatibilität, Sicherheit
 tests/               Unit-Tests ohne externe Abhängigkeiten
-dashboard/           responsive Weboberfläche und statischer Build
+dashboard/           responsive Weboberfläche und statischer Produktionsbuild
+integrations/mainsail  native, verschiebbare AutoPA- und Local-Vision-Kacheln
 ```
 
 ## Sicheren Werksfirmware-Modus installieren
 
-Für diesen Modus wird auf Klipper-Seite nur
-`klipper/extras/autopa_clock.py` benötigt. Die Erweiterung:
+Auf Klipper-Seite wird für diesen Modus einzig
+`klipper/extras/autopa_clock.py` benötigt. Die Erweiterung
 
-- meldet die Zuordnung von Linux-Monotonic-Zeit zu Klipper `print_time`
-- zeichnet exakte `AUTOPA_MARK`-Grenzen auf
-- prüft mit `AUTOPA_VALIDATE` Homing, Z-Abstand, X-Verfahrweg und die
-  Extrusionsbereitschaft des Hotends
-- kann Soll- und Isttemperatur innerhalb einer Toleranz prüfen
+- meldet die Zuordnung zwischen Linux-Monotonic- und Klipper-`print_time`;
+- zeichnet exakte `AUTOPA_MARK`-Grenzen auf;
+- stellt `AUTOPA_VALIDATE` bereit, um Homing, Z-Abstand, X-Verfahrweg und die
+  Extrusionsbereitschaft des Hotends zu prüfen;
+- vergleicht auf Wunsch die angeforderte Düsentemperatur und den Messwert
+  innerhalb einer konfigurierten Toleranz mit dem temperaturgebundenen Sweep.
 
-Sie liest oder verändert den Probe nicht, bewegt keine Achse, verändert PA
-nicht und flasht keinen Mikrocontroller. Siehe
+Sie liest oder verändert den Taster nicht, bewegt keine Achse, ändert PA nicht
+und flasht keinen Mikrocontroller. Siehe
 [Installation des Werksfirmware-Modus](docs/INSTALL_FACTORY_MODE.md).
 
 Nach Änderungen an einer bereits importierten Klipper-Python-Erweiterung ist
-ein echter Neustart des Klipper-Dienstes nötig. Ein G-Code-`RESTART` lädt die
-Konfiguration neu, behält aber importierte Python-Module im selben Prozess.
+ein echter Neustart des Klipper-Dienstes nötig. Ein G-Code-`RESTART` lädt zwar
+die Konfiguration neu, behält importierte Python-Module aber im selben Prozess
+im Cache.
 
-## Aufzeichnen und synchronisieren
+## Aufzeichnen und ausrichten
 
 Auf dem Raspberry Pi:
 
@@ -174,15 +184,43 @@ PYTHONPATH=src python3 -m autopa.analyze \
   ~/printer_data/autopa/<datensatz>
 ```
 
-Der Recorder speichert Rohkraft, Beschleunigung, Batch-Diagnose, Zeitpaare,
-G-Code-Ereignisse und ein Manifest. Synchronisierung und Qualitätsanalyse
-erstellen neue abgeleitete Dateien und verändern niemals die Rohdaten.
+Der Recorder schreibt Rohwerte der Kraft und Beschleunigung, Batch-Diagnosen,
+Zeitpaare, G-Code-Ereignisse und ein Manifest. Ausrichtung und Qualitätsanalyse
+erzeugen neue abgeleitete Dateien und überschreiben die Rohdaten niemals.
 
-Der Bewegungskanal ist optional. AutoPA unterstützt LIS2DW, LIS3DH, ADXL345 und
-MPU9250; `--accelerometer-type none` aktiviert eine reine Kraftmessung. Siehe
+Der Bewegungskanal ist optional. AutoPA unterstützt Klippers Datenendpunkte
+für LIS2DW, LIS3DH, ADXL345 und MPU9250; `--accelerometer-type none` erlaubt
+eine reine Kraftaufnahme. Siehe
 [optionale Beschleunigungssensoren](docs/ACCELEROMETERS.md).
 
-Mehrere akzeptierte Läufe können gemeinsam analysiert werden:
+## Exakten G-Code-Kontext ergänzen
+
+AutoPA kann eine getrennte, instrumentierte Kopie einer gewöhnlichen gesliceten
+Datei erzeugen:
+
+```sh
+PYTHONPATH=src python3 -m autopa.gcode_context \
+  model.gcode model.autopa.gcode
+```
+
+Die Quelldatei wird dabei nie verändert. Die Kontextmarker benennen die
+gerade ausgeführte Schicht, die Z-Höhe, das Slicer-Feature und das Objekt auf
+Klippers echter `print_time`-Achse, statt sich auf Moonrakers durch Look-ahead
+verfälschte Dateiposition zu verlassen. Fehlender oder nicht unterstützter
+Kontext unterbricht niemals einen Druck; er unterdrückt stattdessen die
+kontextgestützte PA-Auswertung. Siehe die zweisprachige
+[Anleitung zur G-Code-Kontext-Engine](docs/GCODE_CONTEXT.md).
+
+Für Mainsail `2.18.2` liefert AutoPA außerdem getrennte native Kacheln für
+AutoPA und Local Vision, die sich mit Mainsails normalen
+Dashboard-Einstellungen verschieben, ausblenden und einklappen lassen. Die
+AutoPA-Kachel zeigt ausschließlich kompakte Live- und Kontextdaten. Die
+Local-Vision-Kachel bietet die beaufsichtigte Kamerakalibrierung hinter einer
+eigenen Checkbox, einem Bestätigungsdialog und serverseitigen
+Bewegungssperren. Siehe [native Mainsail-Kacheln](docs/MAINSAIL_TILE.md).
+
+Mehrere qualitätsgeprüfte Läufe lassen sich zusammenfassen, ohne verworfene
+Daten aufzunehmen:
 
 ```sh
 PYTHONPATH=src python3 -m autopa.analyze \
@@ -191,19 +229,20 @@ PYTHONPATH=src python3 -m autopa.analyze \
   --output ~/printer_data/autopa/combined-analysis.json
 ```
 
-Jeder PA-Wert benötigt weiterhin mindestens drei akzeptierte Zyklen. Das
+Jeder PA-Wert benötigt weiterhin mindestens drei einbezogene Zyklen. Das
 Ergebnis bleibt experimentell und setzt `apply_automatically` immer auf
 `false`.
 
-Andere ALPS-Boards und Hotend-Mechaniken können eine optionale
-Mehrpunktkalibrierung für Offset, Polarität und Counts-Kraft-Umrechnung
-verwenden. PA-Metriken bleiben auch ohne diese Kalibrierung lokal normiert.
-Siehe [maschinenspezifische Kalibrierung](docs/CALIBRATION.md).
+Abweichende ALPS-Boards und Hotend-Mechaniken können eine optionale
+Mehrpunktkalibrierung für Offset, Polarität und die Umrechnung von Counts in
+Kraft nutzen. Die PA-Kennwerte bleiben auch ohne sie lokal normiert. Siehe
+[maschinenspezifische Kalibrierung](docs/CALIBRATION.md).
 
-## Überwachten Smoke-Test erzeugen
+## Beaufsichtigten Smoke-Sweep erzeugen
 
-Zuerst muss der aktuelle PA-Wert aus Klipper ausgelesen werden. Er wird als
-`--restore-advance` benötigt, damit die Datei den Ausgangswert wiederherstellt.
+Zuerst den aktuellen PA-Wert aus Klipper auslesen. Er ist als
+`--restore-advance` verpflichtend, damit die erzeugte Datei diesen Wert am Ende
+wiederherstellt.
 
 ```sh
 PYTHONPATH=src python3 -m autopa.sweep \
@@ -215,89 +254,119 @@ PYTHONPATH=src python3 -m autopa.sweep \
   --output autopa-smoke.gcode
 ```
 
-Vor jedem Test:
+Das Beispiel unterstellt, dass der Drucker aktuell auf `0.03` steht; ersetze
+`--restore-advance` immer durch den Wert, den dein eigener Drucker meldet. Der
+Lauf verbraucht 25,2 mm Filament und dauert etwa 11,25 Sekunden, ohne
+Beschleunigungs- und Befehlsaufwand. Jeder Zyklus
 
-- X/Y/Z homen
-- Düse mindestens 10 mm über dem Bett frei positionieren
-- Filament auf eine sichere Extrusionstemperatur bringen
-- Auffangbehälter unter die Düse stellen
-- freien +X-Verfahrweg prüfen
-- beim Drucker bleiben und Not-Aus bereithalten
-- Recorder vor der G-Code-Datei starten
+1. fährt X um +8 mm in einer Sekunde und extrudiert dabei langsam;
+2. fährt X in 0,25 Sekunden um −8 mm zurück und extrudiert dabei schnell;
+3. endet exakt auf der X-Startkoordinate.
 
-`AUTOPA_VALIDATE` lehnt den Test ab, wenn Achsen nicht gehomt sind, Z zu niedrig
-ist, die X-Bewegung den Achsbereich überschreiten würde oder das Hotend zu kalt
-ist.
+Der X-Anteil ist erforderlich, weil die validierte Klipper-Version Pressure
+Advance nur bei positiver Extrusion mit gleichzeitiger X- oder Y-Bewegung
+aktiviert. Außerdem liefert er dem LIS2DW ein echtes Bewegungssignal, um
+mechanische Artefakte verwerfen zu können.
 
-## Überwachten Rückzugs-Sweep erzeugen
+Vor jedem Sweep:
 
-`retract_sweep` variiert die Rückzugslänge von Klippers
-`[firmware_retraction]` über markierte `G10`/Wartezeit/`G11`-Zyklen.
-`retract_analyze` bewertet die Werte anhand des Restdüsendrucks und
-des Wiederanfahrverhaltens. Der aktuelle Rückzugswert ist als
-`--restore-retract` Pflicht, damit die Datei ihn am Ende wiederherstellt:
+- X/Y/Z homen;
+- die Düse frei in der Luft positionieren, mindestens 10 mm über dem Bett;
+- das eingelegte Filament auf eine sichere Extrusionstemperatur bringen;
+- einen Auffangbehälter unter der Düse platzieren;
+- prüfen, dass der angeforderte +X-Verfahrweg innerhalb des Bauraums bleibt;
+- am Drucker bleiben und den Not-Aus griffbereit halten;
+- den Recorder starten, bevor der erzeugte G-Code ausgeführt wird.
+
+`AUTOPA_VALIDATE` weist die Datei ab, wenn Achsen nicht gehomt sind, Z zu
+niedrig steht, die +X-Bewegung die Achsgrenze überschreiten würde oder das
+Hotend zu kalt ist.
+
+## Beaufsichtigten Rückzugs-Sweep erzeugen
+
+`retract_sweep` variiert die Rückzugslängen von Klippers
+`[firmware_retraction]` über markierte `G10`/Wartezeit/`G11`-Zyklen, und
+`retract_analyze` bewertet sie nach verbleibendem Düsendruck und
+Wiederanfahrverhalten. Die aktuelle Rückzugslänge ist als `--restore-retract`
+verpflichtend, damit die Datei sie am Ende wiederherstellt:
 
 ```sh
-PYTHONPATH=src python3 -m autopa.retract_sweep \r
-  --r-start 0.2 \r
-  --r-stop 1.4 \r
-  --r-step 0.2 \r
-  --cycles 5 \r
-  --restore-retract 0.8 \r
+PYTHONPATH=src python3 -m autopa.retract_sweep \
+  --r-start 0.2 \
+  --r-stop 1.4 \
+  --r-step 0.2 \
+  --cycles 5 \
+  --restore-retract 0.8 \
   --output autopa-retract-smoke.gcode
 ```
 
-Die Empfehlung ist fail-closed, experimentell und wird niemals
-automatisch übernommen. Siehe
-[Rückzugs-Sweep-Dokumentation](docs/RETRACT_SWEEP.md).
+Die Empfehlung ist fail-closed, experimentell und wird niemals automatisch
+übernommen. Siehe
+[beaufsichtigter Firmware-Rückzugs-Sweep](docs/RETRACT_SWEEP.md).
 
-## Sicherheitsgrenzen
+## Projektgrenzen
 
-- Normales Drucken ist Fail-open: Recorder- oder Sensorfehler pausieren oder
-  beenden keinen Druck.
-- Die Analyse ist Fail-closed: fehlende, verspätete, abgeschnittene oder
-  unplausible Daten unterdrücken eine PA-Empfehlung.
-- AutoPA verändert PA niemals automatisch.
-- Eine Empfehlung enthält Konfidenz und Nachweise pro Zyklus.
-- Die Übernahme bleibt eine separate, vom Benutzer bestätigte Aktion.
-- Normales Z-Probing verwendet weiterhin das digitale ALPS-Werkssignal.
-- `TEST_RESONANCES` läuft nicht während des Drucks; LIS2DW wird nur passiv
-  aufgezeichnet.
-- Ein AutoPA-Update darf RatOS, Klipper, Moonraker oder MCU-Firmware nicht
-  aktualisieren.
+- Normales Drucken ist fail-open: Aufnahme- oder Sensorfehler pausieren,
+  brechen oder stoppen niemals einen Druck.
+- Die Auswertung ist fail-closed: fehlende, verspätete, übersteuerte oder
+  unplausible Daten unterdrücken die PA-Empfehlung.
+- Auch die kontextgestützte PA ist fail-closed: Nur ein zulässiger
+  Feature-Marker, dessen Klipper-`print_time` bereits erreicht ist, darf ein
+  PA-Nachweisfenster öffnen.
+- Aufnahme und Dry-Run verändern PA und Rückzug nie.
+- Die Auswertung liefert zunächst eine Empfehlung mit Konfidenz und Nachweisen
+  je Zyklus.
+- Die experimentelle Übernahme im laufenden Betrieb wird separat freigegeben,
+  ist nur vorübergehend scharfgeschaltet, ratenbegrenzt, in der Gesamtabweichung
+  begrenzt und wird beim Entschärfen oder nach dem Druck auf die
+  Ausgangswerte der Laufzeit zurückgesetzt.
+- Auto-Retract wirkt ausschließlich auf Klippers `[firmware_retraction]` sowie
+  auf gesliceten `G10`/`G11`; rohe Extruder-Rückzugsbewegungen in einer
+  gewöhnlichen G-Code-Datei kann es nicht umschreiben.
+- Normales Tasten läuft weiterhin über das digitale ALPS-Werkssignal.
+- `TEST_RESONANCES` wird während des Drucks nicht ausgeführt; AutoPA zeichnet
+  LIS2DW-Werte nur passiv auf.
+- Ein Projektupdate darf ausschließlich AutoPA-Dateien und den eigenen Dienst
+  aktualisieren. RatOS, Klipper, Moonraker und MCU-Firmware sind
+  ausgenommen.
 
-Die vollständigen Regeln stehen unter
+Die vollständigen Regeln und die aktuellen Qualitätsschwellen stehen unter
 [Fail-open-Drucken](docs/FAIL_OPEN.md).
+Das Validierungsverfahren und die harten Regelgrenzen sind unter
+[Adaptive PA und Auto-Retract](docs/ADAPTIVE_CONTROL.md) dokumentiert.
 
-AutoPA kann außerdem befohlene Extrusion und gemessenen Düsendruck vergleichen.
-Ein anhaltender Druckabfall kann auf gerissenes, leeres oder durchrutschendes
-Filament hinweisen, bleibt aber ohne zusätzlichen Schalter oder Encoder nur
-beratend. Siehe
-[Filament-Druckverlust-Erkennung](docs/FILAMENT_MONITOR.md).
+AutoPA kann außerdem die von Klipper befohlene Extrusion mit dem gemessenen
+Düsendruck vergleichen. Ein anhaltender Druckeinbruch kann auf gerissenes,
+leeres oder durchrutschendes Filament hindeuten, bleibt aber ein Hinweis und
+kann die genaue Ursache ohne zusätzlichen Filamentschalter oder
+Bewegungsencoder nicht bestimmen. Siehe
+[Erkennung von Filament-Druckverlust](docs/FILAMENT_MONITOR.md).
 
 Temperaturabhängiges PA-Verhalten lässt sich über mindestens drei stabile
 Testtemperaturen vergleichen. Das Ergebnis ist ein experimentelles,
-sensorbasiertes Prozessfenster und ersetzt keine Prüfung von Stringing,
-Materialabbau oder Schichthaftung. Siehe
+sensorbasiertes Prozessfenster und ersetzt keine Prüfung auf Stringing,
+thermischen Abbau und Schichthaftung. Siehe
 [Material- und Temperaturcharakterisierung](docs/MATERIAL_TEMPERATURE.md).
 
-## Inspiration und Quellenangaben
+## Quellen und Danksagung
 
-AutoPA ist eine unabhängige Implementierung mit eigener Git-Historie und **kein
-Fork** von PrusaPATuner, KAPAT, Klipper oder RatOS. Die experimentelle Richtung
-wurde von
+AutoPA ist eine eigenständige Implementierung mit eigener Git-Historie. Es ist
+**kein Fork** von PrusaPATuner, KAPAT, Klipper oder RatOS. Die experimentelle
+Ausrichtung ist von
 [CNCKitchen/PrusaPATuner](https://github.com/CNCKitchen/PrusaPATuner) und
-[vzagranichnyy/KAPAT](https://github.com/vzagranichnyy/KAPAT) inspiriert. Deren
-Quelldateien sind nicht Bestandteil von AutoPA.
+[vzagranichnyy/KAPAT](https://github.com/vzagranichnyy/KAPAT) inspiriert; deren
+Quelldateien sind in AutoPA nicht enthalten.
 
-PrusaPATuner inspirierte die Load-Cell-basierte PA-Forschung und
-Analysemethoden; KAPAT dient als Inspiration und Vergleich für einen
-Klipper/Mellow-ALPS-Aufbau. AutoPA verwendet eine eigene Implementierung für
-Befehle, Zeitbasis, Erfassung und Analyse.
+Testform und geplante Auswertung vergleichen Sprungantwort, Phasenverzug und
+Integralfläche — angeregt durch die Load-Cell-basierte PA-Forschung in
+PrusaPATuner und das Klipper/Mellow-ALPS-Experiment in KAPAT. PrusaPATuner
+zielt auf die Buddy-Firmware, während KAPAT einen Klipper-spezifischen Weg
+zeigt. AutoPA verwendet eigene Befehle, eine eigene Zeitbasis sowie eine eigene
+Erfassung und Auswertung.
 
-Unter `backport/klipper/` liegen GPLv3-lizenzierte,
-von Klipper abgeleitete Backport-Dateien mit beibehaltenen
-Copyright-Hinweisen. Der genaue Umfang steht in den
+Die Dateien unter `backport/klipper/` enthalten GPLv3-lizenziertes, von Klipper
+abgeleitetes Backport-Material mit den beibehaltenen
+Urheberrechtsvermerken. Der genaue Umfang und die Links stehen in den
 [Drittanbieter-Hinweisen](THIRD_PARTY_NOTICES.md).
 
 - [Mellow FLY-ALPS Webtool](https://mellow.klipper.cn/en/docs/ToolsDoc/fly-alps-tool/)
