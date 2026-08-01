@@ -20,6 +20,10 @@ __pycache__/
 /dashboard/.next/
 /dashboard/dist/
 
+# Generated sweep files and their plans are reproducible from the generators.
+/autopa-*.gcode
+/autopa-*.json
+
 # Machine-specific force calibrations belong with the printer configuration.
 /*calibration.local.json
 /config/*calibration.local.json

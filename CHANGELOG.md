@@ -60,6 +60,20 @@
   empfohlenes Proxy-Lese-Timeout von 300 s dokumentiert (nginx
   `proxy_read_timeout 300s;`); Prime-Standard der Kachel auf 10 mm erhöht.
 
+- zweistufige Prime vor jedem Kalibrier-Sweep: Nach der Hauptextrusion und
+  einer kurzen Pause baut eine langsame Nachfüll-Extrusion (25 % der Prime,
+  1–4 mm, `prime_settle_e`) stabilen Düsendruck direkt vor dem ersten
+  Messzyklus auf; das reduziert Messfehler durch Ooze nach dem Aufheizen
+  (leere Schmelzkammer) bei beiden Sweeps.
+
+- Fehlerbehebung: `GET /api/sweep` sendete nach der JSON-Antwort zusätzlich
+  die statische `index.html` in dieselbe Verbindung (fehlendes `return`).
+  Weil die Kachel nur `Content-Length` Bytes liest und dann schließt,
+  erzeugte jede Abfrage einen `BrokenPipeError`-Traceback im Dienstprotokoll
+  (rund 6.100 in vier Stunden auf dem validierten Drucker). Zusätzlich wird
+  ein Verbindungsabbruch während einer Antwort jetzt allgemein abgefangen
+  statt protokolliert.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -140,6 +154,19 @@
   running server-side and the status refreshes automatically; a recommended
   300 s proxy read timeout is documented (nginx `proxy_read_timeout 300s;`);
   the tile's prime default was raised to 10 mm.
+
+- two-stage prime before every calibration sweep: after the main extrusion
+  and a short dwell, a slow settle extrusion (25 % of the prime, 1–4 mm,
+  `prime_settle_e`) rebuilds stable nozzle pressure right before the first
+  measured cycle; this reduces measurement errors caused by ooze after
+  heat-up (empty melt chamber) in both sweeps.
+
+- bug fix: `GET /api/sweep` appended the static `index.html` to its JSON
+  response on the same connection (a missing `return`). Because the tile
+  reads only `Content-Length` bytes and then closes, every poll produced a
+  `BrokenPipeError` traceback in the service log (about 6,100 in four hours
+  on the validated printer). A client disconnect during a response is now
+  also caught generally instead of being logged.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

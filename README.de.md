@@ -2,6 +2,8 @@
 
 [English](README.md) | [Deutsch](README.de.md) | [Änderungsprotokoll](CHANGELOG.md)
 
+[![tests](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml/badge.svg)](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml)
+
 AutoPA zeichnet die Düsenkraft eines Mellow FLY-ALPS zusammen mit der realen
 Werkzeugkopfbeschleunigung eines LIS2DW auf einem EBB42 Gen2 auf. Beide
 Datenströme werden über Klippers `print_time`-Zeitbasis synchronisiert und für

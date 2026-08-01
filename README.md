@@ -2,6 +2,8 @@
 
 [English](README.md) | [Deutsch](README.de.md) | [Changelog](CHANGELOG.md)
 
+[![tests](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml/badge.svg)](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml)
+
 AutoPA records nozzle-force data from a Mellow FLY-ALPS together with real
 toolhead acceleration from the LIS2DW on an EBB42 Gen2. The streams are aligned
 on Klipper's `print_time` clock and will be used for a supervised,
