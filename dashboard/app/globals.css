@@ -1230,6 +1230,15 @@ select {
   color: var(--text);
 }
 
+/* Read-only status shown where a field would sit, so the row stays aligned. */
+.field-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 /* What a stage actually did. Each stage hands its value to the next through
    the printer's runtime state, so a silent result would leave the operator
    measuring stage 2 against a pressure advance nobody confirmed. */

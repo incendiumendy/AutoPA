@@ -95,17 +95,50 @@ def build_position_preamble(start_x=None, start_y=None, start_z=None,
         lines.append("G90")
         lines.append("G1%s%s F6000" % (x_part, y_part))
         lines.append("G91")
-    if pos["prime_e"]:
-        # Two-stage prime: the main extrusion refills the melt chamber, the
-        # dwell lets ooze and pressure relax, then a slow settle extrusion
-        # rebuilds stable nozzle pressure right before the first measured
-        # cycle. This removes the first-cycle artefacts seen after the hot
-        # end sat idle (empty chamber from oozing).
-        lines.append("G1 E%.5f F300" % pos["prime_e"])
-        lines.append("G4 P800")
-        lines.append("G1 E%.5f F120" % prime_settle_e(pos["prime_e"]))
-        lines.append("G4 P300")
+    lines.extend(prime_block(pos["prime_e"]))
     return lines, z_lift
+
+
+def prime_block(prime_e):
+    """Two-stage prime: refill the melt chamber, then settle the pressure.
+
+    The main extrusion refills the chamber, the dwell lets ooze and pressure
+    relax, then a slow settle extrusion rebuilds stable nozzle pressure right
+    before the next measured cycle. This removes the first-cycle artefacts
+    seen after the hot end sat idle with an empty chamber.
+    """
+    if not prime_e:
+        return []
+    return [
+        "G1 E%.5f F300" % prime_e,
+        "G4 P800",
+        "G1 E%.5f F120" % prime_settle_e(prime_e),
+        "G4 P300",
+    ]
+
+
+def reprime_duration_s(prime_e):
+    """Wall-clock cost of one reprime, for the sweep duration estimate."""
+    if not prime_e:
+        return 0.0
+    # F300 = 5 mm/s for the main extrusion, F120 = 2 mm/s for the settle,
+    # plus the two dwells (800 ms + 300 ms).
+    return prime_e / 5.0 + prime_settle_e(prime_e) / 2.0 + 1.1
+
+
+def reprime_block(prime_e, label):
+    """Restore the same starting pressure before the next candidate.
+
+    Without this every candidate inherits whatever the previous one left
+    behind. A long retraction empties the chamber, the following candidate
+    then starts dry, and the error compounds down the sweep - which is how a
+    retraction sweep loses its longest values to
+    pressure_amplitude_below_3x_noise_mad while the short ones look fine.
+    """
+    if not prime_e:
+        return []
+    return (["AUTOPA_MARK EVENT=reprime VALUE=%s" % label]
+            + prime_block(prime_e))
 
 
 def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
@@ -192,6 +225,12 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
             ])
             offset += slow_duration + fast_duration
         lines.append("AUTOPA_MARK EVENT=k_end VALUE=%.6f" % k_value)
+        # Same starting pressure for every K value. The PA sweep extrudes
+        # net-positive so it depletes the chamber less than a retraction
+        # sweep, but a drifting baseline still biases the lag estimate.
+        if k_index < len(k_values) - 1:
+            lines.extend(reprime_block(prime_e, "%.6f" % k_value))
+            offset += reprime_duration_s(prime_e)
     lines.extend([
         "M400",
         "AUTOPA_MARK EVENT=sweep_end VALUE=%.6f" % k_values[-1],
@@ -221,9 +260,12 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "current_z_mm": current_z,
         "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
+        "reprime_count": max(0, len(k_values) - 1) if prime_e else 0,
         "filament_length_mm": (
-            len(k_values) * cycles * (slow_e + fast_e) + (prime_e or 0.0)
-            + prime_settle_e(prime_e)),
+            len(k_values) * cycles * (slow_e + fast_e)
+            # One prime at the start plus one between every pair of values.
+            + (len(k_values) if prime_e else 1) * (
+                (prime_e or 0.0) + prime_settle_e(prime_e))),
         "segments": segments,
     }
     return "\n".join(lines) + "\n", plan

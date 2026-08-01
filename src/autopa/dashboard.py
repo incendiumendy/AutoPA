@@ -266,6 +266,19 @@ class DashboardData:
         self._schedule_post_sweep("retract", started_capture)
         return status
 
+    def save_config(self, payload):
+        """Persist the current runtime values to printer.cfg.
+
+        AutoPA otherwise never writes the config: every apply is runtime-only
+        so a Klipper restart returns the machine to its own settings. This is
+        the deliberate exception, requested explicitly per call, and it goes
+        through the retract runner because that is where the printer command
+        lock and the standby check already live.
+        """
+        if not self.sweep_runner:
+            raise RuntimeError("sweep runner disabled")
+        return self.sweep_runner.save_config(payload)
+
     def pa_sweep_status(self):
         return (
             self.pa_sweep_runner.status() if self.pa_sweep_runner else {
@@ -298,13 +311,22 @@ class DashboardData:
         manager = self.capture_manager
         if manager is None:
             return False
+        # Checked outside the try on purpose: a busy recorder must abort the
+        # sweep, while a recorder that fails to start must not. Inside the
+        # try the "except Exception" below would swallow it and the sweep
+        # would run anyway - which is exactly how three calibration stages
+        # once extruded filament and produced nothing analysable.
+        if not manager.status().get("canStart"):
+            raise ValueError(
+                "Eine Messung läuft bereits. Schalte die Live-Daten aus, "
+                "bevor du einen Sweep startest — sonst kann der Sweep seine "
+                "eigene Aufnahme nicht anlegen und das Ergebnis wäre nicht "
+                "auswertbar.")
         try:
-            if not manager.status().get("canStart"):
-                return False
             manager.start("standby", name)
             return True
         except Exception:
-            # A failed capture never blocks the confirmed sweep itself.
+            # A recorder that cannot start never blocks the confirmed sweep.
             return False
 
     def _stop_started_capture(self, started_capture, reason):
@@ -379,13 +401,18 @@ class DashboardData:
         manager = self.capture_manager
         if manager is None:
             return None
-        if started_capture:
-            self._stop_started_capture(True, "sweep_finished")
-            deadline = time.monotonic() + 60.0
-            while time.monotonic() < deadline:
-                if not manager.status().get("active"):
-                    break
-                self.sleep_fn(1.0)
+        if not started_capture:
+            # Only ever analyze a capture this sweep actually started. The
+            # manager keeps reporting the previous dataset name after a stop,
+            # so without this a sweep whose recorder failed to start would
+            # analyze the last run's data and apply a value derived from it.
+            return None
+        self._stop_started_capture(True, "sweep_finished")
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            if not manager.status().get("active"):
+                break
+            self.sleep_fn(1.0)
         status = manager.status()
         if status.get("active"):
             return None
@@ -613,7 +640,8 @@ def make_handler(data, static_dir):
                      "/api/capture/start",
                      "/api/capture/stop",
                      "/api/filter/config",
-                     "/api/sweep/run", "/api/pa-sweep/run"}:
+                     "/api/sweep/run", "/api/pa-sweep/run",
+                     "/api/save-config"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -640,6 +668,8 @@ def make_handler(data, static_dir):
                     result = data.run_sweep(payload)
                 elif request_path == "/api/pa-sweep/run":
                     result = data.run_pa_sweep(payload)
+                elif request_path == "/api/save-config":
+                    result = data.save_config(payload)
                 else:
                     result = data.update_filter(payload)
                 self._send_json(result)

@@ -175,6 +175,44 @@ test("every stage reports what it handed to the next one", async () => {
   }
 });
 
+test("primes every stage and warns while a capture is running", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // Without a prime a long retraction leaves the nozzle empty and the next
+  // candidate measures into a void - which is how a length sweep loses its
+  // longest values to pressure_amplitude_below_3x_noise_mad.
+  const primes = page.match(/prime_e: Number\(primeE\)/g) ?? [];
+  assert.equal(primes.length, 3, "all three stages send a prime");
+  assert.match(page, /useState\("10"\)/);
+  assert.match(page, /zwischen je zwei Kandidatenwerten/);
+
+  // A sweep cannot own its capture while live data runs, so the card has to
+  // say so before the operator burns a run on it.
+  assert.match(page, /Sweep gesperrt/);
+  assert.match(page, /eigene<\/strong> Aufnahme/);
+});
+
+test("save-config is opt-in, standby only and states the consequence", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // AutoPA is runtime-only everywhere else; this is the one deliberate
+  // exception, so the prompt must name the restart and the values.
+  assert.match(page, /api\/save-config/);
+  assert.match(page, /saveConfirmSummary/);
+  assert.match(page, /startet Klipper neu/);
+  assert.match(page, /printer\.cfg/);
+  // Destructive styling and the standby gate, like every printer action.
+  assert.match(page, /className="danger-button"[\s\S]{0,200}Ja, speichern/);
+  const saveBlock = page.slice(page.indexOf("SAVE_CONFIG …") - 900);
+  assert.match(saveBlock, /printState !== "standby"/);
+});
+
 test("the speed stage is honest about what the sensor cannot see", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
