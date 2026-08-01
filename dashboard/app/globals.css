@@ -1188,6 +1188,56 @@ select {
   flex: 1;
 }
 
+/* Confirmation prompt shown in place of the action button. It replaces the
+   typed "AUTOPA VALIDIEREN" phrase: the server still checks the phrase, but
+   the operator now reads what is about to happen instead of copying text.
+   Amber rather than red - this is a deliberate action, not an error. */
+.confirm-box {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 189, 105, 0.34);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: rgba(255, 189, 105, 0.07);
+}
+
+.confirm-box p {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-actions > * {
+  flex: 1;
+}
+
+/* Separates the two phases of the merged card. They can never both apply:
+   phase 1 runs only while printing, phase 2 only in standby. */
+.phase-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.phase-divider::before,
+.phase-divider::after {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  content: "";
+}
+
 .danger-button {
   border: 1px solid rgba(255, 112, 112, 0.36);
   border-radius: 10px;

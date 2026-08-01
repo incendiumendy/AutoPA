@@ -401,6 +401,13 @@ function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
 }
 
+// The server checks this phrase on /api/control/arm, /api/sweep/run and
+// /api/pa-sweep/run and rejects anything else. The dashboard no longer makes
+// the operator retype it: a confirmation dialog that names what is about to
+// happen is a better safety prompt than a phrase people learn to copy. The
+// server-side gate is unchanged.
+const ARM_PHRASE = "AUTOPA VALIDIEREN";
+
 const PRESSURE_DISPLAY_DEADBAND = 0.1;
 const MOTION_DISPLAY_DEADBAND_MM_S2 = 200;
 const DISPLAY_SMOOTHING_ALPHA = 0.42;
@@ -802,7 +809,7 @@ export default function Home() {
     useState<MaterialProfile[]>(DEFAULT_PROFILES);
   const [selectedId, setSelectedId] = useState("pla");
   const [saved, setSaved] = useState(false);
-  const [armPhrase, setArmPhrase] = useState("");
+  const [armConfirming, setArmConfirming] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlMessage, setControlMessage] = useState("");
   const [captureBusy, setCaptureBusy] = useState(false);
@@ -812,7 +819,7 @@ export default function Home() {
   const [sweepRStop, setSweepRStop] = useState("1.4");
   const [sweepRStep, setSweepRStep] = useState("0.2");
   const [sweepCycles, setSweepCycles] = useState("5");
-  const [sweepPhrase, setSweepPhrase] = useState("");
+  const [sweepConfirming, setSweepConfirming] = useState(false);
   const [sweepBusy, setSweepBusy] = useState(false);
   const [sweepMessage, setSweepMessage] = useState("");
 
@@ -1096,7 +1103,7 @@ export default function Home() {
             ? "Anwenden beendet; Dry-Run bleibt verfügbar."
             : "Reglereinstellungen gespeichert.",
       );
-      if (path === "arm") setArmPhrase("");
+      if (path === "arm") setArmConfirming(false);
     } catch (error) {
       setControlMessage(
         error instanceof Error ? error.message : "Änderung fehlgeschlagen",
@@ -1149,7 +1156,7 @@ export default function Home() {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phrase: sweepPhrase,
+          phrase: ARM_PHRASE,
           r_start: Number(sweepRStart),
           r_stop: Number(sweepRStop),
           r_step: Number(sweepRStep),
@@ -1164,7 +1171,7 @@ export default function Home() {
           ? `Sweep gesendet: ${result.lastRun.retractValues.length} Werte à ${result.lastRun.cycles} Zyklen, ca. ${Math.round(result.lastRun.estimatedDurationS)} s. Am Drucker bleiben!`
           : "Sweep gesendet.",
       );
-      setSweepPhrase("");
+      setSweepConfirming(false);
     } catch (error) {
       setSweepMessage(
         error instanceof Error ? error.message : "Sweep fehlgeschlagen",
@@ -1173,6 +1180,51 @@ export default function Home() {
       setSweepBusy(false);
     }
   };
+
+  // The confirmation dialogs name what is about to happen instead of asking
+  // for a phrase. A prompt only protects if the operator reads it, so both
+  // summaries state the concrete values and the printer phase.
+  const armConfirmSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (status.control.adaptivePAEnabled) {
+      parts.push(
+        `Pressure Advance ${formatNumber(status.printer.pressureAdvance, 3)} → ${formatNumber(status.control.suggestedPA, 3)}`,
+      );
+    }
+    if (status.control.autoRetractEnabled) {
+      parts.push(
+        `Rückzug ${formatNumber(status.printer.retractLength, 2)} → ${formatNumber(status.control.suggestedRetractMm, 2)} mm`,
+      );
+    }
+    const what = parts.length ? parts.join(" und ") : "nichts";
+    return `Begrenztes Anwenden im laufenden Druck scharfschalten: ${what}. Höchstens 30 Minuten, schrittweise, ohne SAVE_CONFIG, beim Entschärfen wird der Ausgangswert wiederhergestellt. Wirklich scharfschalten?`;
+  }, [
+    status.control.adaptivePAEnabled,
+    status.control.autoRetractEnabled,
+    status.control.suggestedPA,
+    status.control.suggestedRetractMm,
+    status.printer.pressureAdvance,
+    status.printer.retractLength,
+  ]);
+
+  const sweepConfirmSummary = useMemo(() => {
+    // Mirrors decimal_range() in src/autopa/sweep.py, epsilon included. Without
+    // it (1.4 - 0.2) / 0.2 evaluates to 5.999999999999999 and the dialog would
+    // promise six values while the printer runs seven. A confirmation that
+    // states a wrong number is worse than none.
+    const span =
+      (Number(sweepRStop) - Number(sweepRStart)) / Number(sweepRStep);
+    const values = Number.isFinite(span)
+      ? Math.max(0, Math.floor(span + 1e-9) + 1)
+      : 0;
+    return `Rückzugs-Sweep ${sweepRStart}–${sweepRStop} mm in Schritten von ${sweepRStep} mm (${values} Werte à ${sweepCycles} Zyklen). Der Drucker extrudiert dabei. Der aktuelle Wert ${formatNumber(status.printer.retractLength, 2)} mm wird am Ende wiederhergestellt. Wirklich starten?`;
+  }, [
+    sweepRStart,
+    sweepRStop,
+    sweepRStep,
+    sweepCycles,
+    status.printer.retractLength,
+  ]);
 
   const temperatures = useMemo(() => {
     if (!selectedProfile) return [];
@@ -1395,7 +1447,9 @@ export default function Home() {
             <article className="adaptive-card">
               <div className="section-heading compact">
                 <div>
-                  <p className="eyebrow">Experimenteller Validierungsmodus</p>
+                  <p className="eyebrow">
+                    Experimenteller Validierungsmodus · Phase 1 · nur im Druck
+                  </p>
                   <h2>Adaptive PA & Auto-Retract</h2>
                 </div>
                 <span className={`control-mode mode-${status.control.mode}`}>
@@ -1502,38 +1556,54 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="arming-row">
-                <input
-                  type="text"
-                  value={armPhrase}
-                  onChange={(event) => setArmPhrase(event.target.value)}
-                  placeholder="AUTOPA VALIDIEREN"
-                  aria-label="Bestätigung für begrenztes Anwenden"
-                />
-                {status.control.armed ? (
-                  <button
-                    type="button"
-                    className="danger-button"
-                    disabled={controlBusy}
-                    onClick={() => postControl("disarm")}
-                  >
-                    Anwenden beenden
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={
-                      controlBusy ||
-                      !status.control.allowPrinterCommands ||
-                      armPhrase !== "AUTOPA VALIDIEREN"
-                    }
-                    onClick={() => postControl("arm", { phrase: armPhrase })}
-                  >
-                    Begrenzt anwenden
-                  </button>
-                )}
-              </div>
+              {armConfirming ? (
+                <div className="confirm-box">
+                  <p>{armConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={controlBusy}
+                      onClick={() =>
+                        postControl("arm", { phrase: ARM_PHRASE })
+                      }
+                    >
+                      Ja, scharfschalten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setArmConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  {status.control.armed ? (
+                    <button
+                      type="button"
+                      className="danger-button"
+                      disabled={controlBusy}
+                      onClick={() => postControl("disarm")}
+                    >
+                      Anwenden beenden
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={
+                        controlBusy || !status.control.allowPrinterCommands
+                      }
+                      onClick={() => setArmConfirming(true)}
+                    >
+                      Begrenzt anwenden …
+                    </button>
+                  )}
+                </div>
+              )}
 
               <p className="control-note">
                 Keine Pause, kein Abbruch und kein SAVE_CONFIG. Änderungen sind
@@ -1544,12 +1614,14 @@ export default function Home() {
               {status.control.lastError && (
                 <p className="control-error">{status.control.lastError}</p>
               )}
-            </article>
 
-            <article className="adaptive-card">
+              <div className="phase-divider">
+                <span>Phase 2 · nur im Standby</span>
+              </div>
+
               <div className="section-heading compact">
                 <div>
-                  <p className="eyebrow">Überwachter Test vor dem Druck</p>
+                  <p className="eyebrow">Beaufsichtigter Test vor dem Druck</p>
                   <h2>Rückzugs-Sweep</h2>
                 </div>
                 <span className="safety-note">
@@ -1558,6 +1630,12 @@ export default function Home() {
                     : "Server-seitig gesperrt"}
                 </span>
               </div>
+
+              <p className="control-note">
+                Misst die Rückzugslänge einmalig aus, bevor gedruckt wird. Der
+                Regler oben arbeitet umgekehrt: fortlaufend im laufenden Druck.
+                Beide können nie gleichzeitig aktiv sein.
+              </p>
 
               <div className="field-group two">
                 <label>
@@ -1619,28 +1697,43 @@ export default function Home() {
                 </label>
               </div>
 
-              <div className="arming-row">
-                <input
-                  type="text"
-                  value={sweepPhrase}
-                  onChange={(event) => setSweepPhrase(event.target.value)}
-                  placeholder="AUTOPA VALIDIEREN"
-                  aria-label="Bestätigung für den Rückzugs-Sweep"
-                />
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={
-                    sweepBusy ||
-                    !status.sweep.allowPrinterCommands ||
-                    sweepPhrase !== "AUTOPA VALIDIEREN" ||
-                    status.printer.printState !== "standby"
-                  }
-                  onClick={postSweepRun}
-                >
-                  Sweep an Drucker senden
-                </button>
-              </div>
+              {sweepConfirming ? (
+                <div className="confirm-box">
+                  <p>{sweepConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={sweepBusy}
+                      onClick={postSweepRun}
+                    >
+                      Ja, Sweep starten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setSweepConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={
+                      sweepBusy ||
+                      !status.sweep.allowPrinterCommands ||
+                      status.printer.printState !== "standby"
+                    }
+                    onClick={() => setSweepConfirming(true)}
+                  >
+                    Sweep an Drucker senden …
+                  </button>
+                </div>
+              )}
 
               {status.printer.printState !== "standby" && (
                 <p className="control-error">
