@@ -1,4 +1,5 @@
 import json
+import socket
 import tempfile
 import threading
 import unittest
@@ -50,6 +51,12 @@ class DashboardStatusTests(unittest.TestCase):
                 "x_mm_s2": 3,
                 "y_mm_s2": 4,
                 "z_mm_s2": 0,
+                "motion_x_mm_s2": 1200,
+                "motion_y_mm_s2": -800,
+                "motion_z_mm_s2": 350,
+                "rms_x_mm_s2": 420,
+                "rms_y_mm_s2": 310,
+                "rms_z_mm_s2": 90,
                 "errors": 0,
                 "overflows": 0,
             },
@@ -72,6 +79,14 @@ class DashboardStatusTests(unittest.TestCase):
         self.assertEqual(5.0, result["sensors"]["lis2dw"]["magnitude"])
         self.assertEqual(
             5.0, result["sensors"]["accelerometer"]["magnitude"])
+        self.assertEqual(
+            1200.0, result["sensors"]["accelerometer"]["motionX"])
+        self.assertEqual(
+            -800.0, result["sensors"]["accelerometer"]["motionY"])
+        self.assertEqual(
+            350.0, result["sensors"]["accelerometer"]["motionZ"])
+        self.assertEqual(
+            420.0, result["sensors"]["accelerometer"]["rmsX"])
         self.assertEqual(0.6, result["printer"]["nozzleDiameter"])
         self.assertEqual(1.75, result["printer"]["filamentDiameter"])
         self.assertTrue(
@@ -293,6 +308,112 @@ class DashboardStatusTests(unittest.TestCase):
                 with urllib.request.urlopen(request):
                     pass
                 self.assertTrue(data.stopped)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
+    def test_http_filter_surface_saves_profiles_without_direct_gcode(self):
+        class Data:
+            def __init__(self):
+                self.profiles = None
+
+            def filter_status(self):
+                return {
+                    "state": "idle",
+                    "allowCommands": False,
+                    "availableFans": ["chamber_filter"],
+                    "printerAction": "none",
+                }
+
+            def update_filter(self, payload):
+                self.profiles = payload["profiles"]
+                return {
+                    "state": "idle",
+                    "allowCommands": False,
+                    "availableFans": ["chamber_filter"],
+                    "configuredProfiles": len(self.profiles),
+                    "printerAction": "none",
+                }
+
+        data = Data()
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(data, directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            base = "http://127.0.0.1:%d" % server.server_port
+            try:
+                with urllib.request.urlopen(
+                        base + "/api/filter") as response:
+                    payload = json.load(response)
+                self.assertEqual(["chamber_filter"],
+                                 payload["availableFans"])
+                body = json.dumps({"profiles": [{
+                    "id": "abs",
+                    "filter_enabled": True,
+                }]}).encode("utf-8")
+                request = urllib.request.Request(
+                    base + "/api/filter/config", method="POST", data=body,
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(
+                        1, json.load(response)["configuredProfiles"])
+                self.assertEqual("abs", data.profiles[0]["id"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
+    def test_sweep_endpoints_send_exactly_one_response(self):
+        # A missing return let /api/sweep append the static index.html
+        # after its JSON body. The tile reads only Content-Length bytes and
+        # then closes, so the trailing write produced a BrokenPipeError
+        # traceback on every poll.
+        class Data:
+            def status(self):
+                return {}
+
+            def sweep_status(self):
+                return {"printerAction": "none"}
+
+            def pa_sweep_status(self):
+                return {"printerAction": "none"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(Data(), directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for path in ("/api/sweep", "/api/pa-sweep"):
+                    connection = socket.create_connection(
+                        ("127.0.0.1", server.server_port), timeout=5)
+                    try:
+                        connection.sendall(
+                            ("GET %s HTTP/1.0\r\n\r\n" % path).encode("ascii"))
+                        raw = b""
+                        while True:
+                            chunk = connection.recv(4096)
+                            if not chunk:
+                                break
+                            raw += chunk
+                    finally:
+                        connection.close()
+                    self.assertEqual(
+                        1, raw.count(b"HTTP/1.0 200 OK"),
+                        "%s must send exactly one response" % path)
+                    self.assertNotIn(b"<!doctype html>", raw)
+                    head, _, body = raw.partition(b"\r\n\r\n")
+                    self.assertIn(b"application/json", head)
+                    self.assertEqual(
+                        "none", json.loads(body)["printerAction"])
             finally:
                 server.shutdown()
                 server.server_close()

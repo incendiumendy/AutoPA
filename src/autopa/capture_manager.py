@@ -28,7 +28,7 @@ def _safe_name(value):
 
 
 class CaptureManager:
-    """Run one passive recorder and stop it when its print terminates."""
+    """Run one passive recorder in live-preview or print-bound mode."""
 
     def __init__(
             self, alps_device, klippy_socket, output_root, live_status_path,
@@ -74,13 +74,11 @@ class CaptureManager:
         return candidate
 
     def start(self, print_state, name="print"):
-        if print_state != "printing":
-            raise RuntimeError(
-                "Messung kann nur bei Klipper-Status 'printing' starten")
         if not self.alps_device:
             raise RuntimeError(
                 "FLY-ALPS wurde nicht eindeutig gefunden; "
                 "AUTOPA_ALPS_DEVICE konfigurieren")
+        attached_to_print = print_state == "printing"
         with self.lock:
             if self._active():
                 raise RuntimeError("Eine AutoPA-Messung läuft bereits")
@@ -97,8 +95,8 @@ class CaptureManager:
             self.error = None
             self.monitor_error = None
             self.stop_reason = None
-            self.attached_to_print = True
-            self.seen_printing = True
+            self.attached_to_print = attached_to_print
+            self.seen_printing = attached_to_print
             self.manifest = None
             self.thread = threading.Thread(
                 target=self._run_capture,
@@ -145,6 +143,7 @@ class CaptureManager:
                     self.monitor_error = None
                     if state == "printing":
                         self.seen_printing = True
+                        self.attached_to_print = True
                     should_stop = (
                         self.seen_printing
                         and state in TERMINAL_PRINT_STATES)
@@ -188,6 +187,9 @@ class CaptureManager:
                 "canStart": bool(self.alps_device) and not active,
                 "canStop": active,
                 "dataset": self.dataset,
+                "mode": (
+                    "print_bound" if self.attached_to_print
+                    else "live_preview"),
                 "attachedToPrint": self.attached_to_print,
                 "stopReason": self.stop_reason,
                 "error": self.error,

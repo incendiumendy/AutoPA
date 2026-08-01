@@ -6,6 +6,9 @@ export async function GET() {
   const force = 10420 + Math.sin(phase * 1.7) * 260 + Math.sin(phase * 0.31) * 90;
   const acceleration =
     9630 + Math.sin(phase * 2.1) * 110 + Math.cos(phase * 0.42) * 55;
+  const motionX = Math.sin(phase * 1.9) * 4200;
+  const motionY = Math.cos(phase * 1.4) * 3100;
+  const motionZ = Math.sin(phase * 2.6) * 1400;
   const temperature = 210 + Math.sin(phase * 0.18) * 0.35;
 
   return Response.json(
@@ -53,9 +56,18 @@ export async function GET() {
           normalized: (force - 10420) / 350,
           sampleRate: 2597,
         },
-        lis2dw: {
+        accelerometer: {
+          enabled: true,
+          type: "lis2dw",
+          name: "toolboard_t0",
           state: "ok",
           magnitude: acceleration,
+          motionX,
+          motionY,
+          motionZ,
+          rmsX: Math.abs(motionX) * 0.45,
+          rmsY: Math.abs(motionY) * 0.45,
+          rmsZ: Math.abs(motionZ) * 0.45,
           sampleRate: 386,
         },
       },
@@ -100,6 +112,21 @@ export async function GET() {
         commandCount: 0,
         lastCommand: null,
         lastError: null,
+      },
+      chamberFilter: {
+        state: "idle",
+        allowCommands: false,
+        availableFans: ["chamber_filter"],
+        filename: null,
+        matchedProfile: null,
+        activeFan: null,
+        activeSpeedPercent: null,
+        postRunSecondsRemaining: 0,
+        configuredProfiles: 0,
+        lastCommand: null,
+        lastError: null,
+        commandCount: 0,
+        printerAction: "none",
       },
     },
     {

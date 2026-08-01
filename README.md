@@ -2,6 +2,8 @@
 
 [English](README.md) | [Deutsch](README.de.md) | [Changelog](CHANGELOG.md)
 
+[![tests](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml/badge.svg)](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml)
+
 AutoPA records nozzle-force data from a Mellow FLY-ALPS together with real
 toolhead acceleration from the LIS2DW on an EBB42 Gen2. The streams are aligned
 on Klipper's `print_time` clock and will be used for a supervised,
@@ -13,12 +15,20 @@ An optional local dashboard displays live force, movement, temperature,
 Pressure Advance, measurement health and editable PLA/ABS/PETG/ASA/TPU test
 profiles. Its experimental controller defaults to a command-free dry-run and
 requires two independent unlocks before it can make bounded runtime changes.
+Nozzle load is shown relative to its learned baseline on a signed
+`− / 0 / +` scale, while motion separates gravity-free X/Y direction and Z
+deflection.
 See
 [local live dashboard](docs/DASHBOARD.md).
 
-The passive recorder manager can attach to an already running print, continue
-without an open browser and stop the synchronized ALPS/motion capture when the
-print ends. Starting or stopping this measurement sends no printer G-code.
+The passive recorder manager can switch live data on with one click while idle,
+attach to an already running or later starting print, continue without an open
+browser and stop the synchronized ALPS/motion capture when the print ends.
+Starting or stopping this measurement sends no printer G-code.
+
+Material profiles can also define a separately locked, filename-triggered
+Klipper chamber filter with selectable `fan_generic`, speed and post-run time.
+See [chamber filter documentation](docs/CHAMBER_FILTER.md).
 
 The project targets both ordinary Klipper/Moonraker installations and RatOS.
 It does not replace RatOS configuration files.
@@ -31,7 +41,8 @@ It does not replace RatOS configuration files.
 ## Validated hardware
 
 - Rat Rig V-Core 3 300 with RatOS
-- Mellow FLY-ALPS firmware `2.0.0`, USB through a powered/stable hub
+- Mellow FLY-ALPS firmware `2.0.0`, USB through the validated EBB42 Gen2
+  passthrough or a powered/stable hub
 - BTT EBB42 Gen2 over USB
 - EBB42 onboard LIS2DW as `lis2dw toolboard_t0`
 - Existing digital ALPS probe on EBB42 pins PA5 (enable) and PA4 (trigger)
@@ -40,20 +51,23 @@ It does not replace RatOS configuration files.
 
 ```text
 Raspberry Pi / RatOS or Klipper
-|- USB hub -> Mellow FLY-ALPS factory firmware
-|             |- USB CDC force stream (~2.6 kHz)
-|             `- digital trigger remains connected to the EBB42
-`- USB -> EBB42 Gen2
-              |- normal toolboard functions
-              `- LIS2DW acceleration stream (~386 Hz)
+`- stable USB uplink -> EBB USB Adapter -> EBB42 Gen2 (USB mode)
+   |- normal toolboard functions and LIS2DW acceleration
+   `- USB passthrough -> Mellow FLY-ALPS factory firmware
+      |- USB CDC force stream
+      `- digital trigger remains connected to the EBB42
 ```
 
-The EBB42 is a USB device, not a USB host or hub. The ALPS therefore needs its
-own USB connection to the Pi or to a good powered hub. Do not crimp a passive
-USB connection from the ALPS into the EBB42 USB connector.
+The EBB42 **Gen2** passthrough follows its selected communication mode and can
+carry the ALPS USB connection while the board is in USB mode. This exact path
+was validated with stable EBB42 and ALPS device IDs, live AutoPA acquisition
+and a ten-minute disconnect monitor. It is not a general claim about older EBB
+revisions. See the bilingual
+[EBB42 Gen2 USB passthrough guide](docs/EBB42_GEN2_USB_PASSTHROUGH.md).
 
 The direct ALPS-to-Pi connection was unstable on the validated machine. A USB
-hub restored reliable operation. See [USB stability](docs/USB_STABILITY.md).
+hub restored reliable operation; the later EBB42 Gen2 passthrough test was also
+stable. See [USB stability](docs/USB_STABILITY.md).
 
 ## Why the ALPS is not flashed
 
@@ -118,7 +132,7 @@ config/
 docs/                installation, protocol, compatibility and safety notes
 tests/               dependency-free unit tests
 dashboard/           responsive browser interface and static production build
-integrations/mainsail native movable AutoPA panel for a pinned Mainsail build
+integrations/mainsail native movable AutoPA and Local Vision panels
 ```
 
 ## Install the safe factory-firmware mode
@@ -189,10 +203,12 @@ unsupported context never interrupts a print; it suppresses context-assisted
 PA evaluation instead. See the bilingual
 [G-Code Context Engine guide](docs/GCODE_CONTEXT.md).
 
-For Mainsail `2.18.2`, AutoPA also provides an optional native panel that can
-be moved, hidden and collapsed with Mainsail's normal dashboard settings. It
-shows compact live/context data and can switch only command-free dry-run on or
-off. See [native Mainsail tile](docs/MAINSAIL_TILE.md).
+For Mainsail `2.18.2`, AutoPA also provides separate native AutoPA and Local
+Vision panels that can be moved, hidden and collapsed with Mainsail's normal
+dashboard settings. The AutoPA tile shows only compact live/context data. The
+Local Vision tile provides supervised camera calibration behind its own
+checkbox, confirmation dialog and server-side motion gates. See
+[native Mainsail tiles](docs/MAINSAIL_TILE.md).
 
 Repeated quality-approved runs can be pooled without admitting rejected data:
 
@@ -251,6 +267,26 @@ Before any sweep:
 
 `AUTOPA_VALIDATE` rejects the file if axes are not homed, Z is too low, the +X
 move would exceed the axis limit, or the hotend is too cold.
+
+## Generate a supervised retraction sweep
+
+`retract_sweep` varies Klipper `[firmware_retraction]` lengths through marked
+`G10`/dwell/`G11` cycles and `retract_analyze` ranks them by residual nozzle
+pressure and restart behavior. The current retraction length is mandatory as
+`--restore-retract`, so the file restores it at the end:
+
+```sh
+PYTHONPATH=src python3 -m autopa.retract_sweep \r
+  --r-start 0.2 \r
+  --r-stop 1.4 \r
+  --r-step 0.2 \r
+  --cycles 5 \r
+  --restore-retract 0.8 \r
+  --output autopa-retract-smoke.gcode
+```
+
+The recommendation is fail-closed, experimental and never auto-applied.
+See [supervised firmware-retraction sweep](docs/RETRACT_SWEEP.md).
 
 ## Project boundaries
 

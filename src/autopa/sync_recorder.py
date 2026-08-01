@@ -22,6 +22,41 @@ ACCELEROMETER_ENDPOINTS = {
 }
 
 
+def summarize_acceleration_batch(data):
+    """Return gravity-free signed motion and RMS values for one sensor batch."""
+    samples = [
+        row for row in data
+        if len(row) >= 4
+        and all(isinstance(value, (int, float)) for value in row[1:4])
+    ]
+    if not samples:
+        return {}
+    means = [
+        sum(float(row[axis]) for row in samples) / len(samples)
+        for axis in (1, 2, 3)
+    ]
+    deviations = [
+        tuple(float(row[axis]) - means[axis - 1] for axis in (1, 2, 3))
+        for row in samples
+    ]
+    planar_peak = max(
+        deviations, key=lambda value: value[0] ** 2 + value[1] ** 2)
+    z_peak = max(deviations, key=lambda value: abs(value[2]))
+    rms = [
+        (sum(value[axis] ** 2 for value in deviations)
+         / len(deviations)) ** 0.5
+        for axis in range(3)
+    ]
+    return {
+        "motion_x_mm_s2": planar_peak[0],
+        "motion_y_mm_s2": planar_peak[1],
+        "motion_z_mm_s2": z_peak[2],
+        "rms_x_mm_s2": rms[0],
+        "rms_y_mm_s2": rms[1],
+        "rms_z_mm_s2": rms[2],
+    }
+
+
 def _record_alps_process(device, output_path, duration, stop_event,
                          ready_event, result_queue, live_queue):
     count = 0
@@ -412,14 +447,18 @@ class SynchronizedRecorder:
                                 self.stats["acceleration_overflows"], overflows)
                             if data:
                                 latest = data[-1]
-                                self._update_live("acceleration", {
+                                live_acceleration = {
                                     "print_time": latest[0],
                                     "x_mm_s2": latest[1],
                                     "y_mm_s2": latest[2],
                                     "z_mm_s2": latest[3],
                                     "errors": errors,
                                     "overflows": overflows,
-                                })
+                                }
+                                live_acceleration.update(
+                                    summarize_acceleration_batch(data))
+                                self._update_live(
+                                    "acceleration", live_acceleration)
                             batch_writer.writerow((
                                 time.monotonic_ns(), len(data),
                                 errors, overflows))

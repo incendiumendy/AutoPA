@@ -11,6 +11,11 @@
 4. After the event, Moonraker reported no undervoltage/throttling flags,
    normal temperature and low CPU load. That does not rule out a transient
    USB, power or I/O event.
+5. On 27 July 2026, the FLY-ALPS was connected through the EBB42 Gen2 USB
+   passthrough. Initial enumeration produced several reconnects and one
+   descriptor error. The connection then passed eleven checks over ten minutes
+   without another USB fault while Klipper remained ready and AutoPA continued
+   capturing.
 
 No firmware was flashed and the temporary build did not intentionally modify
 the active `/home/pi/klipper` worktree.
@@ -19,7 +24,9 @@ the active `/home/pi/klipper` worktree.
 
 - Never build firmware during a print.
 - Use `make -j1` for the next Raspberry build and monitor all MCU links.
-- Keep ALPS on the stable hub path.
+- Keep ALPS on a validated path: either the known-good hub or the tested EBB42
+  Gen2 USB passthrough described in
+  [EBB42_GEN2_USB_PASSTHROUGH.md](EBB42_GEN2_USB_PASSTHROUGH.md).
 - Check whether the hub is externally powered and whether its 5 V path can
   back-power the Pi. Do not connect conflicting power sources.
 - Prefer short, shielded data cables with strain relief.

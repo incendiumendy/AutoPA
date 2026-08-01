@@ -45,3 +45,4 @@ sudo systemctl enable --now "$SERVICE_NAME"
 
 printf '%s\n' "AutoPA dashboard installed: http://$(hostname -I | awk '{print $1}'):7126/"
 printf '%s\n' "Printer commands are server-side locked (AUTOPA_ALLOW_PRINTER_COMMANDS=0)."
+printf '%s\n' "Chamber-filter commands are separately locked (AUTOPA_ALLOW_FILTER_COMMANDS=0)."

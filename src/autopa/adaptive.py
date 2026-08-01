@@ -317,6 +317,15 @@ class AdaptiveEstimator:
         return None
 
     def observe(self, sample, current_retract_mm=None):
+        if (sample.get("e_velocity") is None
+                and sample.get("print_state")
+                in {"standby", "complete", "cancelled"}):
+            # A confirmed idle printer has no commanded extrusion. This lets
+            # a fresh live preview learn its no-flow baseline without motion
+            # trapq segments, while printing and paused states still fail
+            # closed when extrusion context is missing.
+            sample = dict(sample)
+            sample["e_velocity"] = 0.0
         now = float(sample.get("host_monotonic") or time.monotonic())
         force = sample.get("force")
         velocity = sample.get("e_velocity")

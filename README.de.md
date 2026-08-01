@@ -2,6 +2,8 @@
 
 [English](README.md) | [Deutsch](README.de.md) | [Änderungsprotokoll](CHANGELOG.md)
 
+[![tests](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml/badge.svg)](https://github.com/incendiumendy/AutoPA/actions/workflows/tests.yml)
+
 AutoPA zeichnet die Düsenkraft eines Mellow FLY-ALPS zusammen mit der realen
 Werkzeugkopfbeschleunigung eines LIS2DW auf einem EBB42 Gen2 auf. Beide
 Datenströme werden über Klippers `print_time`-Zeitbasis synchronisiert und für
@@ -12,13 +14,22 @@ Datenströme werden über Klippers `print_time`-Zeitbasis synchronisiert und fü
 Das optionale lokale Dashboard zeigt Düsenkraft, Bewegung, Temperatur,
 Pressure Advance, Messqualität sowie bearbeitbare Testprofile für
 PLA/ABS/PETG/ASA/TPU. Gegenüber dem Drucker bleibt es absichtlich nur lesend.
+Der Düsendruck wird relativ zum gelernten Nullpunkt auf einer
+`− / 0 / +`-Skala dargestellt. Die Bewegungsanzeige trennt die
+schwerkraftbereinigte X/Y-Richtung und Z-Auslenkung.
 Weitere Informationen stehen in der
 [Dashboard-Dokumentation](docs/DASHBOARD.md).
 
-Der passive Recorder-Manager kann sich an einen bereits laufenden Druck
+Der passive Recorder-Manager kann Live-Daten per Klick auch im Standby
+einschalten, sich an einen bereits laufenden oder später beginnenden Druck
 anhängen, ohne offenen Browser weiterlaufen und die synchronisierte
-ALPS-/Bewegungsaufnahme am Druckende sauber stoppen. Beim Starten oder Stoppen
+ALPS-/Bewegungsaufnahme am Druckende sauber stoppen. Beim Ein- oder Ausschalten
 dieser Messung wird kein G-Code an den Drucker gesendet.
+
+Materialprofile können außerdem einen getrennt gesperrten, über den Dateinamen
+ausgelösten Klipper-Chamber-Filter mit auswählbarem `fan_generic`, Leistung und
+Nachlaufzeit definieren. Siehe
+[Chamber-Filter-Dokumentation](docs/CHAMBER_FILTER.md).
 
 AutoPA unterstützt gewöhnliche Klipper/Moonraker-Installationen und RatOS. Es
 ersetzt keine RatOS-Konfigurationsdateien.
@@ -217,6 +228,28 @@ Vor jedem Test:
 `AUTOPA_VALIDATE` lehnt den Test ab, wenn Achsen nicht gehomt sind, Z zu niedrig
 ist, die X-Bewegung den Achsbereich überschreiten würde oder das Hotend zu kalt
 ist.
+
+## Überwachten Rückzugs-Sweep erzeugen
+
+`retract_sweep` variiert die Rückzugslänge von Klippers
+`[firmware_retraction]` über markierte `G10`/Wartezeit/`G11`-Zyklen.
+`retract_analyze` bewertet die Werte anhand des Restdüsendrucks und
+des Wiederanfahrverhaltens. Der aktuelle Rückzugswert ist als
+`--restore-retract` Pflicht, damit die Datei ihn am Ende wiederherstellt:
+
+```sh
+PYTHONPATH=src python3 -m autopa.retract_sweep \r
+  --r-start 0.2 \r
+  --r-stop 1.4 \r
+  --r-step 0.2 \r
+  --cycles 5 \r
+  --restore-retract 0.8 \r
+  --output autopa-retract-smoke.gcode
+```
+
+Die Empfehlung ist fail-closed, experimentell und wird niemals
+automatisch übernommen. Siehe
+[Rückzugs-Sweep-Dokumentation](docs/RETRACT_SWEEP.md).
 
 ## Sicherheitsgrenzen
 
