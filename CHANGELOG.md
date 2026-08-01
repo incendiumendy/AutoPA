@@ -53,6 +53,13 @@
   Index-Raster ersetzt; die Bestätigungsphrase in der Mainsail-Kachel ist
   durch eine Bestätigungsbox mit Zusammenfassung ersetzt.
 
+- Gateway-Timeout-Verständnis in der Mainsail-Kachel: Läuft die
+  Sweep-Bestätigung in einen HTTP-504/Timeout, zeigt die Kachel einen
+  erklärenden Hinweis statt des roten Statuscodes — der Sweep läuft
+  serverseitig weiter und der Status aktualisiert sich automatisch;
+  empfohlenes Proxy-Lese-Timeout von 300 s dokumentiert (nginx
+  `proxy_read_timeout 300s;`); Prime-Standard der Kachel auf 10 mm erhöht.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -126,6 +133,13 @@
   a warning because alignment replaces arrival times with a uniform
   sample-index grid; the confirmation phrase in the Mainsail tile was
   replaced by a confirmation box with a run summary.
+
+- gateway-timeout awareness in the Mainsail tile: when the sweep
+  acknowledgement runs into an HTTP 504/timeout, the tile shows an
+  explanatory note instead of the raw status code — the sweep keeps
+  running server-side and the status refreshes automatically; a recommended
+  300 s proxy read timeout is documented (nginx `proxy_read_timeout 300s;`);
+  the tile's prime default was raised to 10 mm.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

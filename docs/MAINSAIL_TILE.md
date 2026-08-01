@@ -53,13 +53,21 @@ und das serverseitige Opt-in-Flag; während eines Drucks ist der Block
 sichtbar gesperrt und der Server lehnt zusätzlich ab. Der zum Laufbeginn
 aktive Rückzugs- bzw. PA-Wert wird am Ende automatisch wiederhergestellt.
 
-Über die Felder **Ziel-Z** (10–300 mm) und **Prime** (0–20 mm E) hebt der
+Über die Felder **Ziel-Z** (10–300 mm) und **Prime** (0–20 mm E, Standard
+10 mm) hebt der
 Sweep die Düse vor dem Start auf eine sichere Höhe — 50 mm halten den
 Filamenthaufen zuverlässig von der Spitze fern — und extrudiert kurz bei
 Temperatur, damit der erste Zyklus stabilen Druck misst. Ein Auffangbehälter
 ist nicht zwingend nötig: Jede Stelle, an der der Strang frei abfallen kann,
 ohne die Düse wieder zu erreichen, ist geeignet (etwa eine Schale am
 Gestellprofil oder eine freie Fallzone neben dem Bett).
+
+Ein kompletter Sweep kann bis zu zwei Minuten dauern; die Kachel wartet auf
+die Bestätigung des Servers. Dauert sie zu lange (z. B. Gateway-Timeout),
+erscheint ein Hinweis statt eines roten Fehlers — der Lauf geht serverseitig
+weiter und der Status aktualisiert sich automatisch. Dafür sollte der
+Reverse-Proxy vor dem AutoPA-Dienst ein Lese-Timeout von mindestens 300 s
+haben (nginx: `proxy_read_timeout 300s;` in `location /autopa/`).
 
 Ist **Auto-Übernahme** aktiv (Standard), nimmt der Dienst den Sweep
 automatisch auf, wertet ihn aus und übernimmt die Empfehlung **nur zur
@@ -175,12 +183,20 @@ and the server-side opt-in flag; during a print the block is visibly locked
 and the server refuses as well. The retraction or PA value active at run
 start is restored automatically at the end.
 
-The **Target Z** (10–300 mm) and **Prime** (0–20 mm E) fields lift the nozzle
+The **Target Z** (10–300 mm) and **Prime** (0–20 mm E, default 10 mm) fields
+lift the nozzle
 to a safe height before anything is extruded — 50 mm keeps the filament pile
 well away from the tip — and prime a few millimetres at temperature so the
 first cycle measures stable pressure. A purge container is not required: any
 spot where the strand falls away freely without reaching the nozzle again is
 fine, such as a tray clipped to the frame or a free drop zone beside the bed.
+
+A full sweep can take up to two minutes; the tile waits for the server
+acknowledgement. If it takes too long (e.g. a gateway timeout), the tile
+shows a note instead of a red error — the run continues server-side and the
+status refreshes automatically. For that to work, the reverse proxy in front
+of the AutoPA service should allow a read timeout of at least 300 s (nginx:
+`proxy_read_timeout 300s;` inside `location /autopa/`).
 
 With **Auto-apply** enabled (the default), the service automatically captures
 the sweep, analyzes it, and applies the recommendation **at runtime only**

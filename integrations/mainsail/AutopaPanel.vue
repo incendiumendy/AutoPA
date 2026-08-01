@@ -376,7 +376,7 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
     retractParams: SweepParams = { from: '0.2', to: '1.4', step: '0.2', cycles: '5' }
     paParams: SweepParams = { from: '0', to: '0.08', step: '0.01', cycles: '6' }
     sweepTargetZ = '50'
-    sweepPrimeE = '5'
+    sweepPrimeE = '10'
     sweepAutoApply = true
     retractApplyBound = '1.5'
     paApplyBound = '0.09'
@@ -443,6 +443,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepRestore: 'Restore am Ende',
                   sweepSent: 'Sweep an den Drucker gesendet.',
                   sweepInvalid: 'Bitte gültige Zahlen eingeben.',
+                  sweepSlowAck:
+                      'Die Bestätigung dauerte zu lange — der Sweep läuft vermutlich trotzdem weiter. Der Status aktualisiert sich gleich automatisch.',
                   sweepLastRun: 'Letzter Lauf',
                   sweepTargetZ: 'Ziel-Z',
                   sweepPrime: 'Prime',
@@ -494,6 +496,8 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
                   sweepRestore: 'Restore at the end',
                   sweepSent: 'Sweep sent to the printer.',
                   sweepInvalid: 'Please enter valid numbers.',
+                  sweepSlowAck:
+                      'The acknowledgement took too long — the sweep is most likely still running. The status will refresh automatically.',
                   sweepLastRun: 'Last run',
                   sweepTargetZ: 'Target Z',
                   sweepPrime: 'Prime',
@@ -1063,7 +1067,12 @@ export default class AutopaPanel extends Mixins(BaseMixin) {
             this.sweepMessage = this.labels.sweepSent
             await this.refreshSweeps()
         } catch (error) {
-            this.sweepError = error instanceof Error ? error.message : String(error)
+            const rawMessage = error instanceof Error ? error.message : String(error)
+            // Ein Gateway-Timeout (z. B. HTTP 504) heißt nur, dass die HTTP-Bestätigung
+            // zu lange dauerte — der Sweep läuft serverseitig trotzdem weiter.
+            this.sweepError = /HTTP 50[24]|timed?\s*out/i.test(rawMessage)
+                ? this.labels.sweepSlowAck
+                : rawMessage
         } finally {
             this.sweepBusy = false
         }
