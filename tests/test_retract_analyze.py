@@ -5,7 +5,8 @@ import os
 import tempfile
 import unittest
 
-from autopa.retract_analyze import analyze_retract_dataset, cycle_metrics
+from autopa.retract_analyze import (
+    _rank_retract_lengths, analyze_retract_dataset, cycle_metrics)
 
 
 SAMPLE_RATE = 200.0
@@ -135,3 +136,35 @@ class RetractAnalyzeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpeedSweepRankingTest(unittest.TestCase):
+    """A speed sweep must never reach the length-applying pipeline."""
+
+    def results(self, values):
+        return [{
+            "swept_value": value,
+            "cycles_included": 5,
+            "medians": {
+                "residual_counts": 100.0 - index * 10,
+                "restart_deficit_ratio": 0.5 - index * 0.05,
+                "restart_overshoot_ratio": 0.4 - index * 0.03,
+            },
+        } for index, value in enumerate(values)]
+
+    def test_speed_winner_is_not_reported_as_a_length(self):
+        recommendation = _rank_retract_lengths(
+            self.results([20.0, 35.0, 50.0, 65.0]), True, "speed")
+        self.assertEqual(recommendation["swept_variable"], "retract_speed")
+        self.assertEqual(recommendation["retract_speed_mm_s"], 65.0)
+        # dashboard._post_sweep_pipeline looks up exactly this key and skips
+        # when it is absent, so the speed can never be sent as a length.
+        self.assertIsNone(recommendation.get("retract_length_mm"))
+        self.assertFalse(recommendation["apply_automatically"])
+
+    def test_length_winner_is_still_applicable(self):
+        recommendation = _rank_retract_lengths(
+            self.results([0.2, 0.4, 0.6, 0.8]), True, "length")
+        self.assertEqual(recommendation["swept_variable"], "retract_length")
+        self.assertEqual(recommendation["retract_length_mm"], 0.8)
+        self.assertIsNone(recommendation.get("retract_speed_mm_s"))

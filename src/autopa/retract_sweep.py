@@ -14,18 +14,50 @@ from .sweep import build_position_preamble, decimal_range, prime_settle_e
 
 MAX_RETRACT_MM = 10.0
 
+# Firmware-retraction speeds outside this band are rejected. The lower bound
+# keeps a cycle from dwelling so long that the melt relaxes on its own and the
+# measurement stops being about the retraction; the upper bound is where
+# extruders start skipping on stiff filament. The ALPS cannot see skipping -
+# there is no encoder - so the range must stay conservative rather than rely
+# on the analysis to notice damage.
+MIN_RETRACT_SPEED_MM_S = 5.0
+MAX_RETRACT_SPEED_MM_S = 120.0
+
 
 def build_retract_sweep(retract_values, cycles, e_speed=1.5,
                         extrude_duration=1.2, settle_s=1.0, x_travel=8.0,
                         retract_speed=35.0, restore_retract=None, min_z=10.0,
                         target_temperature=None, temperature_tolerance=2.0,
                         start_x=None, start_y=None, start_z=None,
-                        prime_e=0.0, current_z=None):
+                        prime_e=0.0, current_z=None, speed_values=None,
+                        restore_retract_speed=None):
+    # speed_values turns this into a retraction-speed sweep: the length is
+    # held at retract_values[0] and every candidate speed is measured with the
+    # same three metrics. Material viscosity changes how fast the melt can
+    # follow the filament, so the best length at one speed is not the best
+    # length at another - but sweeping both as a grid costs 2.5x the time and
+    # filament, so the two run as separate stages.
+    sweep_speed = bool(speed_values)
+    if sweep_speed and len(retract_values) != 1:
+        raise ValueError(
+            "A speed sweep needs exactly one retract length to hold")
     if not retract_values:
         raise ValueError("At least one retract length is required")
     if any(value < 0.0 or value > MAX_RETRACT_MM for value in retract_values):
         raise ValueError(
             "Retract lengths must be between 0 and %.1f mm" % MAX_RETRACT_MM)
+    if sweep_speed:
+        if any(not MIN_RETRACT_SPEED_MM_S <= value <= MAX_RETRACT_SPEED_MM_S
+               for value in speed_values):
+            raise ValueError(
+                "Retract speeds must be between %.0f and %.0f mm/s"
+                % (MIN_RETRACT_SPEED_MM_S, MAX_RETRACT_SPEED_MM_S))
+        if (restore_retract_speed is None
+                or not MIN_RETRACT_SPEED_MM_S <= restore_retract_speed
+                <= MAX_RETRACT_SPEED_MM_S):
+            raise ValueError(
+                "A restore retract speed between %.0f and %.0f mm/s is "
+                "required" % (MIN_RETRACT_SPEED_MM_S, MAX_RETRACT_SPEED_MM_S))
     if (restore_retract is None
             or not 0.0 <= restore_retract <= MAX_RETRACT_MM):
         raise ValueError(
@@ -76,22 +108,44 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
     preamble, z_lift = build_position_preamble(
         start_x, start_y, start_z, prime_e, current_z=current_z)
     lines.extend(preamble)
+    candidates = speed_values if sweep_speed else retract_values
+    held_length = retract_values[0]
+    # The analysis reads this marker to learn which variable the cycle values
+    # belong to. Without it a speed sweep would be ranked and reported as a
+    # length, and the auto-apply path would push a speed number into
+    # SET_RETRACTION RETRACT_LENGTH.
     lines.append(
-        "AUTOPA_MARK EVENT=retract_sweep_start VALUE=%.4f"
-        % retract_values[0])
+        "AUTOPA_MARK EVENT=retract_sweep_mode VALUE=%s"
+        % ("speed" if sweep_speed else "length"))
+    lines.append(
+        "AUTOPA_MARK EVENT=retract_sweep_start VALUE=%.4f" % candidates[0])
     segments = []
     offset = 0.0
-    for r_index, r_value in enumerate(retract_values):
+    for r_index, r_value in enumerate(candidates):
         # UNRETRACT_EXTRA_LENGTH is pinned to zero so every candidate is
-        # evaluated symmetrically against the configured unretract speed.
-        lines.append(
-            "SET_RETRACTION RETRACT_LENGTH=%.4f UNRETRACT_EXTRA_LENGTH=0"
-            % r_value)
+        # evaluated symmetrically. In a speed sweep the retract and unretract
+        # speeds move together: splitting them would need a second dimension,
+        # and the restart metrics cannot attribute a difference to one of
+        # them on their own.
+        if sweep_speed:
+            lines.append(
+                "SET_RETRACTION RETRACT_LENGTH=%.4f RETRACT_SPEED=%.4f "
+                "UNRETRACT_SPEED=%.4f UNRETRACT_EXTRA_LENGTH=0"
+                % (held_length, r_value, r_value))
+            cycle_speed = r_value
+        else:
+            lines.append(
+                "SET_RETRACTION RETRACT_LENGTH=%.4f UNRETRACT_EXTRA_LENGTH=0"
+                % r_value)
+            cycle_speed = retract_speed
         lines.append("AUTOPA_MARK EVENT=r_start VALUE=%.4f" % r_value)
-        retract_time = r_value / retract_speed
+        moved_mm = held_length if sweep_speed else r_value
+        retract_time = moved_mm / cycle_speed
         cycle_period = 2.0 * extrude_duration + settle_s + 2.0 * retract_time
         segments.append({
-            "retract_length_mm": r_value,
+            "retract_length_mm": held_length if sweep_speed else r_value,
+            "retract_speed_mm_s": cycle_speed,
+            "swept_value": r_value,
             "index": r_index,
             "start_offset_s": offset,
             "cycles": cycles,
@@ -111,11 +165,16 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
             ])
             offset += cycle_period
         lines.append("AUTOPA_MARK EVENT=r_end VALUE=%.4f" % r_value)
+    restore = "SET_RETRACTION RETRACT_LENGTH=%.4f" % restore_retract
+    if sweep_speed:
+        # A speed sweep changed both speeds, so both must be put back or the
+        # printer keeps the last candidate after the run.
+        restore += " RETRACT_SPEED=%.4f UNRETRACT_SPEED=%.4f" % (
+            restore_retract_speed, restore_retract_speed)
     lines.extend([
         "M400",
-        "AUTOPA_MARK EVENT=retract_sweep_end VALUE=%.4f"
-        % retract_values[-1],
-        "SET_RETRACTION RETRACT_LENGTH=%.4f" % restore_retract,
+        "AUTOPA_MARK EVENT=retract_sweep_end VALUE=%.4f" % candidates[-1],
+        restore,
         "RESTORE_GCODE_STATE NAME=AUTOPA_RETRACT",
         "; End AutoPA retraction sweep",
     ])
@@ -123,6 +182,11 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "format_version": 1,
         "firmware": "klipper",
         "firmware_retraction_required": True,
+        "swept_variable": "retract_speed" if sweep_speed else "retract_length",
+        "speed_values_mm_s": list(speed_values) if sweep_speed else None,
+        "held_retract_length_mm": held_length if sweep_speed else None,
+        "restore_retract_speed_mm_s": (
+            restore_retract_speed if sweep_speed else None),
         "retract_values_mm": retract_values,
         "cycles_per_value": cycles,
         "e_speed_mm_s": e_speed,
@@ -143,10 +207,20 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
-            len(retract_values) * cycles * 2.0 * extrude_e
+            len(candidates) * cycles * 2.0 * extrude_e
             + (prime_e or 0.0) + prime_settle_e(prime_e)),
         "segments": segments,
-        "notes": [
+        "notes": ([
+            "The sweep sets RETRACT_SPEED and UNRETRACT_SPEED together and "
+            "restores both at the end.",
+            "Speed is ranked mainly by restart deficit and overshoot after "
+            "G11. Residual pressure barely separates speeds because the "
+            "settle window is long enough for any of them to relax.",
+            "The ALPS cannot detect a skipping or ground extruder - there "
+            "is no encoder - so a fast candidate that damages filament can "
+            "still score well. Treat the result as a starting point and "
+            "watch the extruder during the run.",
+        ] if sweep_speed else [
             "Retract and unretract move durations assume the configured "
             "[firmware_retraction] speeds; retract_speed is only used for "
             "the time estimate.",
@@ -154,7 +228,7 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
             "the settle window and by restart deficit after G11.",
             "The result is a measurement suggestion. Confirm the chosen "
             "length with a stringing test print before adopting it.",
-        ],
+        ]),
     }
     return "\n".join(lines) + "\n", plan
 

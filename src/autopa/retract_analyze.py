@@ -99,7 +99,7 @@ def _aggregate(cycles):
     }
 
 
-def _rank_retract_lengths(per_value, allow_recommendation):
+def _rank_retract_lengths(per_value, allow_recommendation, swept="length"):
     cost_metrics = (
         "residual_counts", "restart_deficit_ratio",
         "restart_overshoot_ratio")
@@ -131,13 +131,23 @@ def _rank_retract_lengths(per_value, allow_recommendation):
     gap = (
         ranked[1]["cost"] - best["cost"]
         if len(ranked) > 1 else None)
-    return {
-        "retract_length_mm": best["retract_length_mm"],
+    # A speed sweep must never report its winner under the length key. The
+    # auto-apply pipeline looks up "retract_length_mm" and would otherwise
+    # send a speed into SET_RETRACTION RETRACT_LENGTH. Naming it correctly
+    # makes that path fail closed on its own, without a special case.
+    recommendation = {
+        "swept_variable": (
+            "retract_speed" if swept == "speed" else "retract_length"),
         "experimental": True,
         "cost": best["cost"],
         "cost_gap_to_second_best": gap,
         "apply_automatically": False,
     }
+    if swept == "speed":
+        recommendation["retract_speed_mm_s"] = best["swept_value"]
+    else:
+        recommendation["retract_length_mm"] = best["swept_value"]
+    return recommendation
 
 
 def analyze_retract_dataset(dataset_dir):
@@ -180,20 +190,33 @@ def analyze_retract_dataset(dataset_dir):
         metrics["unretract_print_time"] = following[0]["print_time"]
         cycles_by_value.setdefault(r_value, []).append(metrics)
 
+    swept = "length"
+    for event in events:
+        if event["event"] == "retract_sweep_mode":
+            swept = "speed" if event["value"] == "speed" else "length"
+            break
+
     per_value = []
     for r_value in sorted(cycles_by_value):
         aggregate = _aggregate(cycles_by_value[r_value])
-        aggregate["retract_length_mm"] = r_value
+        aggregate["swept_value"] = r_value
+        if swept == "speed":
+            aggregate["retract_speed_mm_s"] = r_value
+        else:
+            aggregate["retract_length_mm"] = r_value
         aggregate["cycles"] = cycles_by_value[r_value]
         per_value.append(aggregate)
 
-    recommendation = _rank_retract_lengths(per_value, quality_gate_passed)
+    recommendation = _rank_retract_lengths(
+        per_value, quality_gate_passed, swept)
     result = {
         "format_version": 1,
         "dataset": os.path.basename(os.path.abspath(dataset_dir)),
         "combined_samples": len(rows),
         "marker_count": len(events),
         "retract_cycle_count": len(retract_events),
+        "swept_variable": (
+            "retract_speed" if swept == "speed" else "retract_length"),
         "per_value": per_value,
         "recommendation": recommendation,
         "quality_gate_passed": quality_gate_passed,
