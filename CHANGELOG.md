@@ -74,6 +74,16 @@
   ein Verbindungsabbruch während einer Antwort jetzt allgemein abgefangen
   statt protokolliert.
 
+- Fehlerbehebung: Die Ratenbegrenzung des adaptiven Reglers unterdrückte
+  das erste Kommando auf einer gerade gestarteten Maschine.
+  `last_command_at` und `last_retraction_query_at` waren mit `0.0`
+  vorbelegt, `time.monotonic()` ist unter Linux aber die Zeit seit dem
+  Systemstart — der Bootzeitpunkt wurde damit als echter, sehr junger
+  Zeitstempel gelesen. Lief der Drucker weniger als
+  `min_update_interval_s` (Standard 30 s), verwarf der Regler die erste
+  Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
+  Kennzeichen für „noch nicht geschehen".
+
 - Mainsail-Farbbrücke im Dashboard: `dashboard/public/theme.js` liest die
   aktive Primärfarbe aus der Moonraker-Datenbank
   (`mainsail` / `uiSettings.primary`) und setzt `--primary`,
@@ -183,6 +193,15 @@
   `BrokenPipeError` traceback in the service log (about 6,100 in four hours
   on the validated printer). A client disconnect during a response is now
   also caught generally instead of being logged.
+
+- bug fix: the adaptive controller's rate limiter suppressed the first
+  command on a machine that had just started. `last_command_at` and
+  `last_retraction_query_at` were seeded with `0.0`, but `time.monotonic()`
+  is seconds since boot on Linux, so boot time was read as a real and very
+  recent timestamp. While the printer had been up for less than
+  `min_update_interval_s` (30 s by default) the controller silently
+  discarded the first apply. Both now use `None` to mean "has not happened
+  yet".
 
 - Mainsail colour bridge in the dashboard: `dashboard/public/theme.js`
   reads the active primary colour from the Moonraker database

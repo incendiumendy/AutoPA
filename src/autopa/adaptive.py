@@ -473,8 +473,12 @@ class AdaptiveController:
         self.initial_retract = None
         self.current_retract = None
         self.firmware_retraction_available = False
-        self.last_retraction_query_at = 0.0
-        self.last_command_at = 0.0
+        # None means "has not happened yet". These must not be seeded with
+        # 0.0: time.monotonic() is seconds since boot on Linux, so on a
+        # freshly started machine 0.0 reads as a real, very recent timestamp
+        # and the rate limiters below suppress the first genuine action.
+        self.last_retraction_query_at = None
+        self.last_command_at = None
         self.command_count = 0
         self.last_command = None
         self.last_error = None
@@ -520,7 +524,8 @@ class AdaptiveController:
 
     def _refresh_firmware_retraction(self):
         now = time.monotonic()
-        if now - self.last_retraction_query_at < 2.0:
+        if (self.last_retraction_query_at is not None
+                and now - self.last_retraction_query_at < 2.0):
             return
         self.last_retraction_query_at = now
         request = urllib.request.Request(
@@ -643,7 +648,9 @@ class AdaptiveController:
         self.seen_printing = True
         if estimate.get("reason") != "ok":
             return
-        if now - self.last_command_at < self.config["min_update_interval_s"]:
+        if (self.last_command_at is not None
+                and now - self.last_command_at
+                < self.config["min_update_interval_s"]):
             return
         command = None
         command_kind = None
