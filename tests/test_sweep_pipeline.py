@@ -162,6 +162,34 @@ class SweepPipelineTest(unittest.TestCase):
                 runner.last_apply["reason"], "no_recommendation")
             self.assertEqual(len(scripts), 1)
 
+    def test_speed_result_is_reported_instead_of_discarded(self):
+        # A retraction-speed sweep produces a real result under a key this
+        # pipeline cannot send. Reporting "no_recommendation" would be false,
+        # and sending it as a length would be dangerous - so it becomes an
+        # advisory the operator applies.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, _, scripts, _ = self.make_data(tmp, {
+                "recommendation": {
+                    "swept_variable": "retract_speed",
+                    "retract_speed_mm_s": 45.0,
+                    "cost": 0.21,
+                    "cost_gap_to_second_best": 0.08,
+                    "apply_automatically": False,
+                },
+            })
+            data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertTrue(
+                wait_for(lambda: runner.last_apply is not None))
+            apply = runner.last_apply
+            self.assertFalse(apply["applied"])
+            self.assertTrue(apply["advisory"])
+            self.assertEqual(apply["reason"], "manual_apply_required")
+            self.assertEqual(apply["recommendedSpeedMmS"], 45.0)
+            self.assertEqual(apply["sweptVariable"], "retract_speed")
+            # Only the sweep itself was sent; nothing was applied.
+            self.assertEqual(len(scripts), 1)
+            self.assertNotIn("RETRACT_LENGTH=45", scripts[0])
+
     def test_auto_apply_disabled_skips_capture_and_pipeline(self):
         with tempfile.TemporaryDirectory() as tmp:
             data, runner, manager, _, _ = self.make_data(

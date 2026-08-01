@@ -361,8 +361,15 @@ class DashboardData:
                 pass
             result = analyzer(dataset_dir) or {}
             recommendation = result.get("recommendation")
-            if not recommendation or recommendation.get(key) is None:
+            if not recommendation:
                 runner.record_apply_skip("no_recommendation", source=source)
+                return
+            if recommendation.get(key) is None:
+                # A retraction-speed sweep lands here: it produced a perfectly
+                # good result under retract_speed_mm_s, but this pipeline only
+                # knows how to send a length. Report the value instead of
+                # discarding it as "no recommendation", which would be false.
+                runner.record_advisory(recommendation, source=source)
                 return
             runner.apply_recommendation(recommendation[key], source=source)
         except Exception:

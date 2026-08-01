@@ -190,6 +190,26 @@ class PaSweepRunner:
         }
         return self.status()
 
+    def record_advisory(self, recommendation, source=None):
+        """Record a result this runner may not apply on its own.
+
+        A PA sweep always reports pressure_advance, so the shared pipeline
+        should never route here. It exists so a recommendation shaped
+        unexpectedly degrades into an advisory note instead of an
+        AttributeError inside the post-sweep thread.
+        """
+        self.last_apply = {
+            "applied": False,
+            "advisory": True,
+            "reason": "manual_apply_required",
+            "sweptVariable": recommendation.get("swept_variable"),
+            "cost": recommendation.get("cost"),
+            "source": source,
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "printerAction": "none",
+        }
+        return self.status()
+
     def record_apply_skip(self, reason, source=None):
         self.last_apply = {
             "applied": False,

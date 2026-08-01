@@ -84,6 +84,19 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Ergebnis-Anzeige je Kalibrierstufe: Jede Stufe zeigt jetzt, was mit ihrer
+  Empfehlung geschehen ist — übernommen (mit Vorher/Nachher und dem Hinweis,
+  dass es nur zur Laufzeit gilt), abgelehnt samt Grund und Grenze, oder als
+  Empfehlung zum selbst Eintragen. Die Stufen reichen ihre Werte über den
+  Laufzeitzustand des Druckers weiter; ohne sichtbares Ergebnis misst Stufe 2
+  gegen einen Pressure Advance, den niemand bestätigt hat. `lastApply` wurde
+  von beiden Runnern schon geliefert, aber nirgends angezeigt.
+
+- Das Ergebnis eines Geschwindigkeits-Sweeps wird nicht mehr als
+  „kein Ergebnis" verworfen. Die Pipeline unterscheidet jetzt zwischen einer
+  fehlenden Empfehlung und einer, die sie nicht selbst anwenden darf, und
+  meldet die empfohlene Geschwindigkeit als Hinweis (`record_advisory`).
+
 - Rückzugsgeschwindigkeits-Sweep: `retract_sweep` kann jetzt statt der Länge
   die Geschwindigkeit variieren und setzt dafür `RETRACT_SPEED` und
   `UNRETRACT_SPEED` gemeinsam (5–120 mm/s), mit Wiederherstellung beider
@@ -234,6 +247,19 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- per-stage result line: every calibration stage now shows what happened to
+  its recommendation - applied, with before/after and the note that it only
+  holds at runtime; refused, with the reason and the bound; or reported for
+  manual entry. The stages hand their values to each other through the
+  printer's runtime state, so without a visible result stage 2 measures
+  against a pressure advance nobody confirmed. `lastApply` was already served
+  by both runners but displayed nowhere.
+
+- a retraction-speed result is no longer discarded as "no recommendation".
+  The pipeline now separates a missing recommendation from one it may not
+  apply itself, and reports the recommended speed as an advisory
+  (`record_advisory`).
 
 - retraction-speed sweep: `retract_sweep` can now vary the speed instead of
   the length, setting `RETRACT_SPEED` and `UNRETRACT_SPEED` together

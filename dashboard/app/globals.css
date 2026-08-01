@@ -1230,6 +1230,34 @@ select {
   color: var(--text);
 }
 
+/* What a stage actually did. Each stage hands its value to the next through
+   the printer's runtime state, so a silent result would leave the operator
+   measuring stage 2 against a pressure advance nobody confirmed. */
+.stage-result {
+  margin: 8px 0 0;
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.stage-result strong {
+  color: var(--text);
+}
+
+.stage-result.tone-ok {
+  border-left-color: var(--green);
+}
+
+.stage-result.tone-info {
+  border-left-color: var(--purple);
+}
+
+.stage-result.tone-warn {
+  border-left-color: var(--amber);
+}
+
 /* A note that carries a real caveat rather than background information. */
 .control-note.warn {
   border-left: 2px solid var(--amber);

@@ -281,6 +281,29 @@ class RetractSweepRunner:
         }
         return self.status()
 
+    def record_advisory(self, recommendation, source=None):
+        """Record a result this runner may not apply on its own.
+
+        The retraction-speed sweep ranks candidates exactly like the length
+        sweep, but its winner is a speed. Applying it would need a bounded
+        speed policy that does not exist, and the ALPS cannot detect a
+        skipping extruder, so the value is reported and left to the operator.
+        """
+        self.last_apply = {
+            "applied": False,
+            "advisory": True,
+            "reason": "manual_apply_required",
+            "sweptVariable": recommendation.get("swept_variable"),
+            "recommendedSpeedMmS": recommendation.get("retract_speed_mm_s"),
+            "cost": recommendation.get("cost"),
+            "costGapToSecondBest": recommendation.get(
+                "cost_gap_to_second_best"),
+            "source": source,
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "printerAction": "none",
+        }
+        return self.status()
+
     def record_apply_skip(self, reason, source=None):
         self.last_apply = {
             "applied": False,

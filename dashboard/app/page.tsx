@@ -146,10 +146,33 @@ type SweepLastRun = {
   scriptLines: number;
 };
 
+// What the post-sweep pipeline did with the analysis: applied the value at
+// runtime, refused it with a reason, or - for a speed sweep - reported it as
+// an advisory because this runner may not send a speed.
+type SweepApply = {
+  applied: boolean;
+  advisory?: boolean;
+  reason?: string;
+  runtimeOnly?: boolean;
+  previousMm?: number | null;
+  appliedMm?: number | null;
+  appliedValue?: number | null;
+  previousValue?: number | null;
+  recommendedMm?: number | null;
+  currentMm?: number | null;
+  deviationMm?: number | null;
+  boundMm?: number | null;
+  recommendedSpeedMmS?: number | null;
+  sweptVariable?: string | null;
+  source?: string | null;
+  at?: string;
+};
+
 type SweepStatus = {
   allowPrinterCommands: boolean;
   confirmationPhraseRequired: boolean;
   lastRun: SweepLastRun | null;
+  lastApply: SweepApply | null;
   lastError: string | null;
   printerAction: "none";
 };
@@ -392,6 +415,7 @@ const EMPTY_STATUS: DashboardStatus = {
     allowPrinterCommands: false,
     confirmationPhraseRequired: true,
     lastRun: null,
+    lastApply: null,
     lastError: null,
     printerAction: "none",
   },
@@ -399,6 +423,7 @@ const EMPTY_STATUS: DashboardStatus = {
     allowPrinterCommands: false,
     confirmationPhraseRequired: true,
     lastRun: null,
+    lastApply: null,
     lastError: null,
     printerAction: "none",
   },
@@ -426,6 +451,70 @@ const ARM_PHRASE = "AUTOPA VALIDIEREN";
 // it (1.4 - 0.2) / 0.2 evaluates to 5.999999999999999 and a dialog would
 // promise six values while the printer runs seven. A confirmation that states
 // a wrong number is worse than none.
+const APPLY_SKIP_REASONS: Record<string, string> = {
+  outside_bounds:
+    "Empfehlung lag außerhalb der erlaubten Abweichung und wurde verworfen.",
+  values_unavailable: "Ist- oder Sollwert war nicht lesbar.",
+  no_recommendation:
+    "Kein auswertbares Ergebnis — die Analyse ist fail-closed und schweigt lieber.",
+  no_capture_dataset: "Es wurde kein Messdatensatz aufgezeichnet.",
+  analysis_failed: "Die Auswertung ist fehlgeschlagen.",
+  auto_apply_disabled: "Auto-Übernahme war für diesen Lauf abgeschaltet.",
+};
+
+// Turns a stage result into one sentence. Every stage hands its value to the
+// next through the printer's runtime state, so the operator has to be able to
+// see what actually landed - otherwise stage 2 silently measures against a
+// pressure advance nobody confirmed.
+function describeStageResult(
+  apply: SweepApply | null,
+  unit: "K" | "mm",
+): { text: string; tone: "ok" | "info" | "warn" } | null {
+  if (!apply) return null;
+  if (apply.advisory) {
+    const value = apply.recommendedSpeedMmS;
+    return {
+      tone: "info",
+      text:
+        value === null || value === undefined
+          ? "Ergebnis liegt vor, wird aber nicht automatisch übernommen."
+          : `Empfehlung: ${value} mm/s. Wird bewusst nicht automatisch übernommen — bitte selbst in [firmware_retraction] eintragen.`,
+    };
+  }
+  if (apply.applied) {
+    const from = apply.previousMm ?? apply.previousValue;
+    const to = apply.appliedMm ?? apply.appliedValue;
+    return {
+      tone: "ok",
+      text: `Übernommen: ${from ?? "?"} → ${to ?? "?"} ${unit}. Nur zur Laufzeit, kein SAVE_CONFIG — nach einem Klipper-Neustart ist der alte Wert zurück.`,
+    };
+  }
+  const reason =
+    APPLY_SKIP_REASONS[apply.reason ?? ""] ??
+    `Nicht übernommen (${apply.reason ?? "unbekannt"}).`;
+  const detail =
+    apply.recommendedMm !== null && apply.recommendedMm !== undefined
+      ? ` Empfohlen war ${apply.recommendedMm} ${unit} bei aktuell ${apply.currentMm ?? "?"} ${unit} (Grenze ±${apply.boundMm ?? "?"}).`
+      : "";
+  return { tone: "warn", text: reason + detail };
+}
+
+function StageResult({
+  apply,
+  unit,
+}: {
+  apply: SweepApply | null;
+  unit: "K" | "mm";
+}) {
+  const result = describeStageResult(apply, unit);
+  if (!result) return null;
+  return (
+    <p className={`stage-result tone-${result.tone}`}>
+      <strong>Ergebnis:</strong> {result.text}
+    </p>
+  );
+}
+
 function countSweepValues(from: string, to: string, step: string) {
   const span = (Number(to) - Number(from)) / Number(step);
   return Number.isFinite(span) ? Math.max(0, Math.floor(span + 1e-9) + 1) : 0;
@@ -1700,6 +1789,7 @@ export default function Home() {
                   K-Werte à {status.paSweep.lastRun.cycles} Zyklen
                 </p>
               )}
+              <StageResult apply={status.paSweep.lastApply} unit="K" />
               {paMessage && <p className="control-message">{paMessage}</p>}
               {status.paSweep.lastError && (
                 <p className="control-error">{status.paSweep.lastError}</p>
@@ -1846,6 +1936,9 @@ export default function Home() {
                   {status.sweep.lastRun.cycles} Zyklen
                 </p>
               )}
+              {status.sweep.lastRun?.mode !== "speed" && (
+                <StageResult apply={status.sweep.lastApply} unit="mm" />
+              )}
               {sweepMessage && <p className="control-message">{sweepMessage}</p>}
               {status.sweep.lastError && (
                 <p className="control-error">{status.sweep.lastError}</p>
@@ -1969,6 +2062,9 @@ export default function Home() {
                     Stufe 3 starten …
                   </button>
                 </div>
+              )}
+              {status.sweep.lastRun?.mode === "speed" && (
+                <StageResult apply={status.sweep.lastApply} unit="mm" />
               )}
 
               <div className="phase-divider">
