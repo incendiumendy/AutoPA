@@ -11,6 +11,18 @@
   --amber: #ffbd69;
   --purple: #b98cff;
   --red: #ff6f79;
+
+  /* Brand accent. public/theme.js overwrites these at runtime with the
+     live Mainsail primary colour; the values here are the RatOS default
+     and stay in effect when Moonraker is unreachable.
+
+     Only brand and interactive surfaces follow this colour. Status
+     colours (--green for ok/live, --amber, --red) stay fixed on purpose,
+     because a user-chosen primary must never make a warning look like an
+     ok state. */
+  --primary: #99f321;
+  --primary-rgb: 153, 243, 33;
+  --primary-ink: #16210a;
 }
 
 * {
@@ -25,7 +37,7 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at 8% -20%, rgba(88, 219, 194, 0.1), transparent 34rem),
+    radial-gradient(circle at 8% -20%, rgba(var(--primary-rgb), 0.1), transparent 34rem),
     radial-gradient(circle at 92% 18%, rgba(185, 140, 255, 0.08), transparent 30rem),
     var(--bg);
   color: var(--text);
@@ -95,15 +107,15 @@ footer {
 }
 
 .back-button span {
-  color: var(--green);
+  color: var(--primary);
   font-size: 17px;
   line-height: 0;
 }
 
 .back-button:hover,
 .back-button:focus-visible {
-  border-color: rgba(88, 219, 194, 0.3);
-  background: rgba(88, 219, 194, 0.08);
+  border-color: rgba(var(--primary-rgb), 0.3);
+  background: rgba(var(--primary-rgb), 0.08);
   color: var(--text);
   outline: none;
 }
@@ -113,12 +125,16 @@ footer {
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid rgba(88, 219, 194, 0.32);
+  border: 1px solid rgba(var(--primary-rgb), 0.32);
   border-radius: 11px;
-  background: linear-gradient(145deg, rgba(88, 219, 194, 0.2), rgba(88, 219, 194, 0.04));
-  color: var(--green);
+  background: linear-gradient(
+    145deg,
+    rgba(var(--primary-rgb), 0.2),
+    rgba(var(--primary-rgb), 0.04)
+  );
+  color: var(--primary);
   font-weight: 850;
-  box-shadow: inset 0 0 18px rgba(88, 219, 194, 0.08);
+  box-shadow: inset 0 0 18px rgba(var(--primary-rgb), 0.08);
 }
 
 .brand div {
@@ -782,11 +798,11 @@ h1 {
 }
 
 .add-profile-button {
-  border: 1px solid rgba(88, 219, 194, 0.24);
+  border: 1px solid rgba(var(--primary-rgb), 0.24);
   border-radius: 8px;
   padding: 7px 10px;
-  background: rgba(88, 219, 194, 0.08);
-  color: var(--green);
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 700;
@@ -795,7 +811,7 @@ h1 {
 
 .add-profile-button:hover,
 .add-profile-button:focus-visible {
-  background: rgba(88, 219, 194, 0.16);
+  background: rgba(var(--primary-rgb), 0.16);
   outline: none;
 }
 
@@ -924,7 +940,7 @@ select {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  accent-color: var(--green);
+  accent-color: var(--primary);
 }
 
 .filter-toggle span {
@@ -944,7 +960,7 @@ select {
 }
 
 .filter-hint strong {
-  color: var(--green);
+  color: var(--primary);
 }
 
 .notice {
@@ -966,11 +982,11 @@ select {
 
 .primary-button {
   width: 100%;
-  border: 1px solid rgba(88, 219, 194, 0.32);
+  border: 1px solid rgba(var(--primary-rgb), 0.32);
   border-radius: 10px;
   padding: 11px 14px;
-  background: rgba(88, 219, 194, 0.12);
-  color: var(--green);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 750;
@@ -979,7 +995,7 @@ select {
 
 .primary-button:hover,
 .primary-button:focus-visible {
-  background: rgba(88, 219, 194, 0.2);
+  background: rgba(var(--primary-rgb), 0.2);
   outline: none;
 }
 
@@ -1257,7 +1273,7 @@ footer {
 
   .back-button span {
     position: absolute;
-    color: var(--green);
+    color: var(--primary);
   }
 
   .clock,
