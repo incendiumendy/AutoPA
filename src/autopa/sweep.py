@@ -21,6 +21,22 @@ POSITION_BOUNDS = {
     "prime_e": (0.0, 20.0),
 }
 
+# Slow settle extrusion appended after the main prime: 25 % of the prime,
+# bounded so tiny primes still get a useful settle and large primes stay
+# reasonable.
+PRIME_SETTLE_FRACTION = 0.25
+PRIME_SETTLE_MIN_MM = 1.0
+PRIME_SETTLE_MAX_MM = 4.0
+
+
+def prime_settle_e(prime_e):
+    """Slow settle extrusion (mm E) that follows the main prime."""
+    if not prime_e:
+        return 0.0
+    return min(
+        PRIME_SETTLE_MAX_MM,
+        max(PRIME_SETTLE_MIN_MM, prime_e * PRIME_SETTLE_FRACTION))
+
 
 def validated_position(start_x=None, start_y=None, start_z=None,
                        prime_e=0.0):
@@ -80,8 +96,15 @@ def build_position_preamble(start_x=None, start_y=None, start_z=None,
         lines.append("G1%s%s F6000" % (x_part, y_part))
         lines.append("G91")
     if pos["prime_e"]:
+        # Two-stage prime: the main extrusion refills the melt chamber, the
+        # dwell lets ooze and pressure relax, then a slow settle extrusion
+        # rebuilds stable nozzle pressure right before the first measured
+        # cycle. This removes the first-cycle artefacts seen after the hot
+        # end sat idle (empty chamber from oozing).
         lines.append("G1 E%.5f F300" % pos["prime_e"])
-        lines.append("G4 P500")
+        lines.append("G4 P800")
+        lines.append("G1 E%.5f F120" % prime_settle_e(pos["prime_e"]))
+        lines.append("G4 P300")
     return lines, z_lift
 
 
@@ -194,11 +217,13 @@ def build_sweep(k_values, cycles, slow_e_speed=0.8, fast_e_speed=8.0,
         "start_y_mm": start_y,
         "start_z_mm": start_z,
         "prime_e_mm": prime_e,
+        "prime_settle_e_mm": prime_settle_e(prime_e),
         "current_z_mm": current_z,
         "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
-            len(k_values) * cycles * (slow_e + fast_e) + (prime_e or 0.0)),
+            len(k_values) * cycles * (slow_e + fast_e) + (prime_e or 0.0)
+            + prime_settle_e(prime_e)),
         "segments": segments,
     }
     return "\n".join(lines) + "\n", plan

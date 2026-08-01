@@ -1,6 +1,6 @@
 import unittest
 
-from autopa.sweep import build_sweep, decimal_range
+from autopa.sweep import build_sweep, decimal_range, prime_settle_e
 
 
 class SweepTest(unittest.TestCase):
@@ -29,6 +29,34 @@ class SweepTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_sweep(
                 [0.0], cycles=3, x_travel=31, restore_advance=0.0)
+
+    def test_prime_settle_stays_within_its_bounds(self):
+        self.assertEqual(prime_settle_e(0.0), 0.0)
+        self.assertEqual(prime_settle_e(None), 0.0)
+        # Below the lower bound a tiny prime still gets a usable settle.
+        self.assertEqual(prime_settle_e(0.5), 1.0)
+        self.assertEqual(prime_settle_e(4.0), 1.0)
+        # Inside the band the settle is a quarter of the prime.
+        self.assertAlmostEqual(prime_settle_e(10.0), 2.5)
+        # At the top of the allowed prime range the cap applies.
+        self.assertEqual(prime_settle_e(20.0), 4.0)
+
+    def test_settle_extrusion_follows_the_main_prime(self):
+        gcode, plan = build_sweep(
+            [0.02], cycles=3, restore_advance=0.03, start_z=50.0,
+            prime_e=10.0, current_z=0.0)
+        self.assertEqual(plan["prime_settle_e_mm"], 2.5)
+        main = gcode.index("G1 E10.00000 F300")
+        settle = gcode.index("G1 E2.50000 F120")
+        self.assertLess(main, settle)
+        # The settle volume is part of the reported filament budget.
+        self.assertAlmostEqual(plan["filament_length_mm"], 8.4 + 10.0 + 2.5)
+
+    def test_no_prime_emits_no_settle_extrusion(self):
+        gcode, plan = build_sweep(
+            [0.02], cycles=3, restore_advance=0.03, prime_e=0.0)
+        self.assertEqual(plan["prime_settle_e_mm"], 0.0)
+        self.assertNotIn("F120", gcode)
 
     def test_target_temperature_is_validated_in_gcode(self):
         gcode, plan = build_sweep(

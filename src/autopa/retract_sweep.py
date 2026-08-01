@@ -7,10 +7,9 @@ It never changes PA and always restores the starting retraction length.
 """
 import argparse
 import json
-import math
 import os
 
-from .sweep import build_position_preamble, decimal_range
+from .sweep import build_position_preamble, decimal_range, prime_settle_e
 
 
 MAX_RETRACT_MM = 10.0
@@ -139,12 +138,13 @@ def build_retract_sweep(retract_values, cycles, e_speed=1.5,
         "start_y_mm": start_y,
         "start_z_mm": start_z,
         "prime_e_mm": prime_e,
+        "prime_settle_e_mm": prime_settle_e(prime_e),
         "current_z_mm": current_z,
         "z_lift": z_lift,
         "estimated_sweep_duration_s": offset,
         "filament_length_mm": (
             len(retract_values) * cycles * 2.0 * extrude_e
-            + (prime_e or 0.0)),
+            + (prime_e or 0.0) + prime_settle_e(prime_e)),
         "segments": segments,
         "notes": [
             "Retract and unretract move durations assume the configured "

@@ -111,6 +111,10 @@ class PaSweepRunnerTest(unittest.TestCase):
         script = scripts[0]
         self.assertIn("G1 Z50.0000 F600", script)
         self.assertIn("G1 E4.00000 F300", script)
+        self.assertIn("G1 E1.00000 F120", script)
+        self.assertLess(
+            script.index("G1 E4.00000 F300"),
+            script.index("G1 E1.00000 F120"))
         self.assertEqual(status["lastRun"]["startZMm"], 50.0)
         self.assertEqual(status["lastRun"]["primeEMm"], 4.0)
         for overrides in (
