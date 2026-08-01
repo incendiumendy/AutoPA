@@ -74,6 +74,11 @@
   ein Verbindungsabbruch während einer Antwort jetzt allgemein abgefangen
   statt protokolliert.
 
+- Zugriffsprotokoll des Dashboards wird sofort geschrieben (`flush=True`).
+  Da systemd die Standardausgabe über eine Pipe einliest, puffert Python
+  blockweise; die Zeilen erreichten das Journal dadurch erst Minuten später
+  in Schüben, während Tracebacks über stderr sofort ankamen.
+
 - eigenständige, verschiebbare Local-Vision-Kachel in Mainsail mit sicher
   bestätigter automatischer Kamerakalibrierung; die frühere
   Local-Vision-Zeile wurde vollständig aus der AutoPA-Kachel entfernt;
@@ -167,6 +172,11 @@
   `BrokenPipeError` traceback in the service log (about 6,100 in four hours
   on the validated printer). A client disconnect during a response is now
   also caught generally instead of being logged.
+
+- the dashboard access log is now flushed immediately (`flush=True`).
+  systemd reads standard output through a pipe, so Python block-buffers it
+  and the lines only reached the journal minutes later in bursts, while
+  tracebacks on stderr arrived at once.
 
 - separate movable Local Vision tile in Mainsail with explicitly confirmed
   automatic camera calibration; the former Local Vision row was completely

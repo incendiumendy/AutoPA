@@ -642,7 +642,13 @@ def make_handler(data, static_dir):
                 self._send_json({"error": str(exc)}, status=400)
 
         def log_message(self, message, *args):
-            print("%s - %s" % (self.address_string(), message % args))
+            # systemd captures stdout through a pipe, so Python block-buffers
+            # it and the access log reaches the journal minutes late, in
+            # bursts. That makes the log useless exactly when it is needed,
+            # while tracebacks on stderr arrive immediately.
+            print(
+                "%s - %s" % (self.address_string(), message % args),
+                flush=True)
 
     return DashboardHandler
 
