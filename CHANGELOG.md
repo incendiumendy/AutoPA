@@ -74,6 +74,17 @@
   ein Verbindungsabbruch während einer Antwort jetzt allgemein abgefangen
   statt protokolliert.
 
+- Mainsail-Farbbrücke im Dashboard: `dashboard/public/theme.js` liest die
+  aktive Primärfarbe aus der Moonraker-Datenbank
+  (`mainsail` / `uiSettings.primary`) und setzt `--primary`,
+  `--primary-rgb` und `--primary-ink`. Marken- und Bedienflächen
+  (Markenzeichen, Primärschaltflächen, Profil-Schaltfläche, Umschalter,
+  Hintergrundschimmer) folgen jetzt dieser Farbe; Statusfarben bleiben
+  bewusst fest, damit eine frei gewählte Primärfarbe niemals einen
+  Warn- wie einen OK-Zustand aussehen lässt. Ist Moonraker nicht
+  erreichbar, gilt weiterhin der RatOS-Standard `#99f321`. Das Skript lag
+  zuvor ungenutzt im Build und wurde von keiner Seite geladen.
+
 - Zugriffsprotokoll des Dashboards wird sofort geschrieben (`flush=True`).
   Da systemd die Standardausgabe über eine Pipe einliest, puffert Python
   blockweise; die Zeilen erreichten das Journal dadurch erst Minuten später
@@ -172,6 +183,16 @@
   `BrokenPipeError` traceback in the service log (about 6,100 in four hours
   on the validated printer). A client disconnect during a response is now
   also caught generally instead of being logged.
+
+- Mainsail colour bridge in the dashboard: `dashboard/public/theme.js`
+  reads the active primary colour from the Moonraker database
+  (`mainsail` / `uiSettings.primary`) and sets `--primary`,
+  `--primary-rgb` and `--primary-ink`. Brand and interactive surfaces
+  (brand mark, primary buttons, add-profile button, toggles, background
+  glow) now follow that colour; status colours stay fixed on purpose so a
+  freely chosen primary can never make a warning look like an ok state.
+  When Moonraker is unreachable the RatOS default `#99f321` still applies.
+  The script previously sat unused in the build and was loaded by nothing.
 
 - the dashboard access log is now flushed immediately (`flush=True`).
   systemd reads standard output through a pipe, so Python block-buffers it

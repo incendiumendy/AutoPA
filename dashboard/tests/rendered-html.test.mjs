@@ -20,6 +20,38 @@ test("renders the finished AutoPA dashboard", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
+test("wires the Mainsail theme bridge into the rendered page", async () => {
+  const html = await readFile(
+    new URL("../dist/client/index.html", import.meta.url),
+    "utf8",
+  );
+  const script = await readFile(
+    new URL("../dist/client/theme.js", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // The bridge shipped unreferenced for a while, so assert the whole chain:
+  // the page loads it, it reads the Mainsail key, and the variables it sets
+  // are the ones the stylesheet actually consumes.
+  assert.match(html, /<script[^>]+src="\/theme\.js"/);
+  assert.match(script, /uiSettings\.primary/);
+  for (const variable of ["--primary", "--primary-rgb", "--primary-ink"]) {
+    assert.match(script, new RegExp(`"${variable}"`));
+    assert.match(css, new RegExp(`${variable}:`));
+  }
+  assert.match(css, /var\(--primary\)/);
+  assert.match(css, /rgba\(var\(--primary-rgb\)/);
+
+  // Status colours must not follow a user-chosen primary: a red Mainsail
+  // theme must never make an ok or live state look like a warning.
+  assert.match(css, /\.state-ok\s*\{\s*color:\s*var\(--green\)/);
+  assert.match(css, /\.live-indicator\.is-live\s*\{\s*color:\s*var\(--green\)/);
+});
+
 test("renders opt-in bounded control without direct printer commands", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
