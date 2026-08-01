@@ -127,13 +127,20 @@ type DashboardStatus = {
     printerAction: "none" | "chamber_filter_only";
   };
   sweep: SweepStatus;
+  paSweep: SweepStatus;
 };
 
 type SweepLastRun = {
   startedAt: string;
-  retractValues: number[];
+  // "length" varies RETRACT_LENGTH, "speed" holds the length and varies
+  // RETRACT_SPEED/UNRETRACT_SPEED. The PA sweep reports kValues instead.
+  mode?: "length" | "speed";
+  retractValues?: number[];
+  speedValues?: number[] | null;
+  kValues?: number[];
+  heldRetractMm?: number | null;
   cycles: number;
-  restoreRetractMm: number;
+  restoreRetractMm?: number;
   estimatedDurationS: number;
   filamentLengthMm: number;
   scriptLines: number;
@@ -388,6 +395,13 @@ const EMPTY_STATUS: DashboardStatus = {
     lastError: null,
     printerAction: "none",
   },
+  paSweep: {
+    allowPrinterCommands: false,
+    confirmationPhraseRequired: true,
+    lastRun: null,
+    lastError: null,
+    printerAction: "none",
+  },
 };
 
 const STATUS_LABEL: Record<SignalState, string> = {
@@ -407,6 +421,15 @@ function formatNumber(value: number | null, digits = 1) {
 // happen is a better safety prompt than a phrase people learn to copy. The
 // server-side gate is unchanged.
 const ARM_PHRASE = "AUTOPA VALIDIEREN";
+
+// Mirrors decimal_range() in src/autopa/sweep.py, epsilon included. Without
+// it (1.4 - 0.2) / 0.2 evaluates to 5.999999999999999 and a dialog would
+// promise six values while the printer runs seven. A confirmation that states
+// a wrong number is worse than none.
+function countSweepValues(from: string, to: string, step: string) {
+  const span = (Number(to) - Number(from)) / Number(step);
+  return Number.isFinite(span) ? Math.max(0, Math.floor(span + 1e-9) + 1) : 0;
+}
 
 const PRESSURE_DISPLAY_DEADBAND = 0.1;
 const MOTION_DISPLAY_DEADBAND_MM_S2 = 200;
@@ -822,6 +845,21 @@ export default function Home() {
   const [sweepConfirming, setSweepConfirming] = useState(false);
   const [sweepBusy, setSweepBusy] = useState(false);
   const [sweepMessage, setSweepMessage] = useState("");
+  // Stage 1: pressure advance. It has to settle before retraction is
+  // measured, because PA decides how much pressure stands in the nozzle at
+  // the moment a retraction starts.
+  const [paKStart, setPaKStart] = useState("0.01");
+  const [paKStop, setPaKStop] = useState("0.09");
+  const [paKStep, setPaKStep] = useState("0.01");
+  const [paCycles, setPaCycles] = useState("5");
+  const [paConfirming, setPaConfirming] = useState(false);
+  const [paBusy, setPaBusy] = useState(false);
+  const [paMessage, setPaMessage] = useState("");
+  // Stage 3: retraction speed, held at the length stage 2 settled on.
+  const [speedVStart, setSpeedVStart] = useState("20");
+  const [speedVStop, setSpeedVStop] = useState("60");
+  const [speedVStep, setSpeedVStep] = useState("10");
+  const [speedConfirming, setSpeedConfirming] = useState(false);
 
   useEffect(() => {
     const stored =
@@ -874,6 +912,14 @@ export default function Home() {
           if (sweepResponse.ok) next.sweep = await sweepResponse.json();
         } catch {
           // Sweep status is optional; the card keeps its previous state.
+        }
+        try {
+          const paResponse = await fetch("api/pa-sweep", {
+            cache: "no-store",
+          });
+          if (paResponse.ok) next.paSweep = await paResponse.json();
+        } catch {
+          // Same as above: stage 1 keeps its previous state.
         }
         if (!active) return;
         const previous = smoothedSensors.current;
@@ -1147,7 +1193,41 @@ export default function Home() {
     }
   };
 
-  const postSweepRun = async () => {
+  const postPaSweepRun = async () => {
+    setPaBusy(true);
+    setPaMessage("");
+    try {
+      const response = await fetch("api/pa-sweep/run", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phrase: ARM_PHRASE,
+          k_start: Number(paKStart),
+          k_stop: Number(paKStop),
+          k_step: Number(paKStep),
+          cycles: Number(paCycles),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
+      setStatus((current) => ({ ...current, paSweep: result }));
+      setPaMessage(
+        result.lastRun
+          ? `PA-Sweep gesendet: ${result.lastRun.kValues?.length ?? "?"} Werte à ${result.lastRun.cycles} Zyklen. Am Drucker bleiben!`
+          : "PA-Sweep gesendet.",
+      );
+      setPaConfirming(false);
+    } catch (error) {
+      setPaMessage(
+        error instanceof Error ? error.message : "Sweep fehlgeschlagen",
+      );
+    } finally {
+      setPaBusy(false);
+    }
+  };
+
+  const postSweepRun = async (mode: "length" | "speed" = "length") => {
     setSweepBusy(true);
     setSweepMessage("");
     try {
@@ -1155,23 +1235,44 @@ export default function Home() {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phrase: ARM_PHRASE,
-          r_start: Number(sweepRStart),
-          r_stop: Number(sweepRStop),
-          r_step: Number(sweepRStep),
-          cycles: Number(sweepCycles),
-        }),
+        body: JSON.stringify(
+          mode === "speed"
+            ? {
+                phrase: ARM_PHRASE,
+                mode: "speed",
+                v_start: Number(speedVStart),
+                v_stop: Number(speedVStop),
+                v_step: Number(speedVStep),
+                cycles: Number(sweepCycles),
+                // A speed result is reported as retract_speed_mm_s, which the
+                // apply pipeline does not know how to send, so it would skip
+                // anyway. Saying so explicitly keeps the intent readable.
+                auto_apply: false,
+              }
+            : {
+                phrase: ARM_PHRASE,
+                r_start: Number(sweepRStart),
+                r_stop: Number(sweepRStop),
+                r_step: Number(sweepRStep),
+                cycles: Number(sweepCycles),
+              },
+        ),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
       setStatus((current) => ({ ...current, sweep: result }));
+      const run = result.lastRun;
+      const count =
+        run?.mode === "speed"
+          ? (run.speedValues?.length ?? "?")
+          : (run?.retractValues?.length ?? "?");
       setSweepMessage(
-        result.lastRun
-          ? `Sweep gesendet: ${result.lastRun.retractValues.length} Werte à ${result.lastRun.cycles} Zyklen, ca. ${Math.round(result.lastRun.estimatedDurationS)} s. Am Drucker bleiben!`
+        run
+          ? `${run.mode === "speed" ? "Geschwindigkeits" : "Längen"}-Sweep gesendet: ${count} Werte à ${run.cycles} Zyklen, ca. ${Math.round(run.estimatedDurationS)} s. Am Drucker bleiben!`
           : "Sweep gesendet.",
       );
       setSweepConfirming(false);
+      setSpeedConfirming(false);
     } catch (error) {
       setSweepMessage(
         error instanceof Error ? error.message : "Sweep fehlgeschlagen",
@@ -1207,17 +1308,25 @@ export default function Home() {
     status.printer.retractLength,
   ]);
 
+  const paConfirmSummary = useMemo(() => {
+    const values = countSweepValues(paKStart, paKStop, paKStep);
+    return `Stufe 1, Pressure Advance: K ${paKStart}–${paKStop} in Schritten von ${paKStep} (${values} Werte à ${paCycles} Zyklen). Der Drucker extrudiert dabei in freier Luft. Der aktuelle Wert K ${formatNumber(status.printer.pressureAdvance, 3)} wird am Ende wiederhergestellt. Wirklich starten?`;
+  }, [paKStart, paKStop, paKStep, paCycles, status.printer.pressureAdvance]);
+
+  const speedConfirmSummary = useMemo(() => {
+    const values = countSweepValues(speedVStart, speedVStop, speedVStep);
+    return `Stufe 3, Rückzugsgeschwindigkeit: ${speedVStart}–${speedVStop} mm/s in Schritten von ${speedVStep} mm/s (${values} Werte à ${sweepCycles} Zyklen), Länge fest auf ${formatNumber(status.printer.retractLength, 2)} mm. Rückzugs- und Rückfahrgeschwindigkeit werden gemeinsam gesetzt und danach beide zurückgestellt. Der Sensor erkennt kein durchrutschendes Filament — Extruder beobachten. Wirklich starten?`;
+  }, [
+    speedVStart,
+    speedVStop,
+    speedVStep,
+    sweepCycles,
+    status.printer.retractLength,
+  ]);
+
   const sweepConfirmSummary = useMemo(() => {
-    // Mirrors decimal_range() in src/autopa/sweep.py, epsilon included. Without
-    // it (1.4 - 0.2) / 0.2 evaluates to 5.999999999999999 and the dialog would
-    // promise six values while the printer runs seven. A confirmation that
-    // states a wrong number is worse than none.
-    const span =
-      (Number(sweepRStop) - Number(sweepRStart)) / Number(sweepRStep);
-    const values = Number.isFinite(span)
-      ? Math.max(0, Math.floor(span + 1e-9) + 1)
-      : 0;
-    return `Rückzugs-Sweep ${sweepRStart}–${sweepRStop} mm in Schritten von ${sweepRStep} mm (${values} Werte à ${sweepCycles} Zyklen). Der Drucker extrudiert dabei. Der aktuelle Wert ${formatNumber(status.printer.retractLength, 2)} mm wird am Ende wiederhergestellt. Wirklich starten?`;
+    const values = countSweepValues(sweepRStart, sweepRStop, sweepRStep);
+    return `Stufe 2, Rückzugslänge: ${sweepRStart}–${sweepRStop} mm in Schritten von ${sweepRStep} mm (${values} Werte à ${sweepCycles} Zyklen). Der Drucker extrudiert dabei in freier Luft. Der aktuelle Wert ${formatNumber(status.printer.retractLength, 2)} mm wird am Ende wiederhergestellt. Wirklich starten?`;
   }, [
     sweepRStart,
     sweepRStop,
@@ -1447,9 +1556,428 @@ export default function Home() {
             <article className="adaptive-card">
               <div className="section-heading compact">
                 <div>
-                  <p className="eyebrow">
-                    Experimenteller Validierungsmodus · Phase 1 · nur im Druck
-                  </p>
+                  <p className="eyebrow">Kalibrierung in drei Stufen</p>
+                  <h2>Druckabstimmung</h2>
+                </div>
+                <span className="safety-note">
+                  {status.printer.printState === "standby"
+                    ? "Standby – Stufen 1–3 möglich"
+                    : `Drucker: ${status.printer.printState || "unbekannt"}`}
+                </span>
+              </div>
+
+              <p className="card-intro">
+                Der FLY-ALPS misst die Kraft an der Düse mit etwa 2.600
+                Messwerten pro Sekunde. Daraus lässt sich ablesen, wie schnell
+                der Druck in der Schmelzkammer auf- und abgebaut wird — genau
+                das, was Pressure Advance und der Rückzug beeinflussen.
+              </p>
+              <p className="card-intro">
+                Die drei Stufen laufen <strong>im Standby</strong>, mit der
+                Düse frei in der Luft. Es wird nichts gedruckt, sondern nur
+                extrudiert und gemessen. Die Reihenfolge ist nicht beliebig:
+                Pressure Advance bestimmt, wie viel Druck im Moment eines
+                Rückzugs überhaupt ansteht — wer den Rückzug bei falschem PA
+                misst, optimiert für einen Zustand, den es später nicht gibt.
+              </p>
+              <p className="card-intro">
+                Lege eine Auffangmöglichkeit unter die Düse. Jede Stufe stellt
+                den Ausgangswert am Ende selbst wieder her.
+              </p>
+
+              <div className="phase-divider">
+                <span>Stufe 1 · Pressure Advance</span>
+              </div>
+
+              <p className="control-note">
+                Fährt jeden K-Wert mit einer langsamen und einer schnellen
+                Extrusionsbewegung an. Der Sensor zeigt, bei welchem Wert der
+                Düsendruck der Bewegung am saubersten folgt, ohne
+                nachzulaufen oder zu überschwingen. Aktuell steht der Drucker
+                auf K&nbsp;{formatNumber(status.printer.pressureAdvance, 3)}.
+              </p>
+
+              <div className="field-group two">
+                <label>
+                  Von
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="0.2"
+                      step="0.005"
+                      value={paKStart}
+                      onChange={(event) => setPaKStart(event.target.value)}
+                    />
+                    K
+                  </span>
+                </label>
+                <label>
+                  Bis
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="0.2"
+                      step="0.005"
+                      value={paKStop}
+                      onChange={(event) => setPaKStop(event.target.value)}
+                    />
+                    K
+                  </span>
+                </label>
+              </div>
+              <div className="field-group two">
+                <label>
+                  Schritt
+                  <span>
+                    <input
+                      type="number"
+                      min="0.001"
+                      max="0.1"
+                      step="0.001"
+                      value={paKStep}
+                      onChange={(event) => setPaKStep(event.target.value)}
+                    />
+                    K
+                  </span>
+                </label>
+                <label>
+                  Zyklen je Wert
+                  <span>
+                    <input
+                      type="number"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={paCycles}
+                      onChange={(event) => setPaCycles(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              {paConfirming ? (
+                <div className="confirm-box">
+                  <p>{paConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={paBusy}
+                      onClick={postPaSweepRun}
+                    >
+                      Ja, Stufe 1 starten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setPaConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={
+                      paBusy ||
+                      !status.paSweep.allowPrinterCommands ||
+                      status.printer.printState !== "standby"
+                    }
+                    onClick={() => setPaConfirming(true)}
+                  >
+                    Stufe 1 starten …
+                  </button>
+                </div>
+              )}
+              {status.paSweep.lastRun && (
+                <p className="control-message">
+                  Letzter Lauf: {status.paSweep.lastRun.kValues?.length ?? "?"}{" "}
+                  K-Werte à {status.paSweep.lastRun.cycles} Zyklen
+                </p>
+              )}
+              {paMessage && <p className="control-message">{paMessage}</p>}
+              {status.paSweep.lastError && (
+                <p className="control-error">{status.paSweep.lastError}</p>
+              )}
+
+              <div className="phase-divider">
+                <span>Stufe 2 · Rückzugslänge</span>
+              </div>
+
+              <p className="control-note">
+                Zieht das Filament um jeden Kandidatenwert zurück, wartet eine
+                Sekunde und fährt wieder an. In der Wartezeit zeigt der Sensor,
+                wie viel Druck in der Düse übrig bleibt — zu wenig Rückzug
+                heißt Nachsickern und Fäden, zu viel heißt Lufteinschluss und
+                eine Lücke beim Wiederanfahren. Aktuell steht der Drucker auf{" "}
+                {formatNumber(status.printer.retractLength, 2)} mm.
+              </p>
+
+              <div className="field-group two">
+                <label>
+                  Von
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={sweepRStart}
+                      onChange={(event) => setSweepRStart(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Bis
+                  <span>
+                    <input
+                      type="number"
+                      min="0.05"
+                      max="10"
+                      step="0.1"
+                      value={sweepRStop}
+                      onChange={(event) => setSweepRStop(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+              </div>
+              <div className="field-group two">
+                <label>
+                  Schritt
+                  <span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="2"
+                      step="0.01"
+                      value={sweepRStep}
+                      onChange={(event) => setSweepRStep(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Zyklen je Wert
+                  <span>
+                    <input
+                      type="number"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={sweepCycles}
+                      onChange={(event) => setSweepCycles(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              {sweepConfirming ? (
+                <div className="confirm-box">
+                  <p>{sweepConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={sweepBusy}
+                      onClick={() => postSweepRun("length")}
+                    >
+                      Ja, Stufe 2 starten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setSweepConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={
+                      sweepBusy ||
+                      !status.sweep.allowPrinterCommands ||
+                      status.printer.printState !== "standby"
+                    }
+                    onClick={() => setSweepConfirming(true)}
+                  >
+                    Stufe 2 starten …
+                  </button>
+                </div>
+              )}
+
+              {status.printer.printState !== "standby" && (
+                <p className="control-error">
+                  Gesperrt: Drucker ist „{status.printer.printState || "unbekannt"}
+                  “ — der Sweep läuft nur im Standby und wird während eines
+                  Drucks serverseitig abgelehnt.
+                </p>
+              )}
+
+              <p className="control-note">
+                Erzeugt den markierten G10/G11-Sweep im Speicher und sendet ihn
+                direkt an Moonraker — keine G-Code-Datei nötig. Der aktuelle
+                Wert ({formatNumber(status.printer.retractLength, 2)} mm) wird
+                am Ende wiederhergestellt. Nur im Standby: Düse ≥ 10 mm über
+                dem Bett, Auffangbehälter, Recorder vorher starten und am
+                Drucker bleiben.
+              </p>
+              {status.sweep.lastRun && (
+                <p className="control-message">
+                  Letzter Lauf ({status.sweep.lastRun.mode === "speed"
+                    ? "Geschwindigkeit"
+                    : "Länge"}
+                  ):{" "}
+                  {(status.sweep.lastRun.mode === "speed"
+                    ? status.sweep.lastRun.speedValues
+                    : status.sweep.lastRun.retractValues
+                  )?.join(", ") ?? "—"}{" "}
+                  {status.sweep.lastRun.mode === "speed" ? "mm/s" : "mm"} à{" "}
+                  {status.sweep.lastRun.cycles} Zyklen
+                </p>
+              )}
+              {sweepMessage && <p className="control-message">{sweepMessage}</p>}
+              {status.sweep.lastError && (
+                <p className="control-error">{status.sweep.lastError}</p>
+              )}
+
+              <div className="phase-divider">
+                <span>Stufe 3 · Rückzugsgeschwindigkeit</span>
+              </div>
+
+              <p className="control-note">
+                Hält die Länge auf dem Druckerwert (
+                {formatNumber(status.printer.retractLength, 2)} mm) und
+                variiert stattdessen, wie schnell gezogen wird. Wie zäh die
+                Schmelze ist, hängt stark vom Material ab — dieselbe Länge
+                wirkt bei PETG anders als bei PLA. Bewertet wird vor allem das
+                Wiederanfahren nach <code>G11</code>: zu langsam heißt
+                Unterextrusion, zu schnell heißt Druckspitze und Blob.
+              </p>
+              <p className="control-note warn">
+                Wichtig: Der Sensor kann <strong>kein durchrutschendes oder
+                angefrästes Filament erkennen</strong> — dafür fehlt ein
+                Encoder. Eine zu hohe Geschwindigkeit kann druckseitig sauber
+                aussehen und trotzdem den Antrieb schädigen. Beobachte den
+                Extruder während des Laufs. Das Ergebnis wird deshalb auch
+                <strong> nie automatisch übernommen</strong>.
+              </p>
+
+              <div className="field-group two">
+                <label>
+                  Von
+                  <span>
+                    <input
+                      type="number"
+                      min="5"
+                      max="120"
+                      step="5"
+                      value={speedVStart}
+                      onChange={(event) => setSpeedVStart(event.target.value)}
+                    />
+                    mm/s
+                  </span>
+                </label>
+                <label>
+                  Bis
+                  <span>
+                    <input
+                      type="number"
+                      min="5"
+                      max="120"
+                      step="5"
+                      value={speedVStop}
+                      onChange={(event) => setSpeedVStop(event.target.value)}
+                    />
+                    mm/s
+                  </span>
+                </label>
+              </div>
+              <div className="field-group two">
+                <label>
+                  Schritt
+                  <span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="40"
+                      step="1"
+                      value={speedVStep}
+                      onChange={(event) => setSpeedVStep(event.target.value)}
+                    />
+                    mm/s
+                  </span>
+                </label>
+                <label>
+                  Zyklen je Wert
+                  <span>
+                    <input
+                      type="number"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={sweepCycles}
+                      onChange={(event) => setSweepCycles(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              {speedConfirming ? (
+                <div className="confirm-box">
+                  <p>{speedConfirmSummary}</p>
+                  <div className="confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={sweepBusy}
+                      onClick={() => postSweepRun("speed")}
+                    >
+                      Ja, Stufe 3 starten
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setSpeedConfirming(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="arming-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={
+                      sweepBusy ||
+                      !status.sweep.allowPrinterCommands ||
+                      status.printer.printState !== "standby"
+                    }
+                    onClick={() => setSpeedConfirming(true)}
+                  >
+                    Stufe 3 starten …
+                  </button>
+                </div>
+              )}
+
+              <div className="phase-divider">
+                <span>Zum Schluss · nur im laufenden Druck</span>
+              </div>
+
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">Experimenteller Validierungsmodus</p>
                   <h2>Adaptive PA & Auto-Retract</h2>
                 </div>
                 <span className={`control-mode mode-${status.control.mode}`}>
@@ -1460,6 +1988,20 @@ export default function Home() {
                       : "AUS"}
                 </span>
               </div>
+
+              <p className="control-note">
+                Kein Sweep, sondern ein Nachregler: Er beobachtet die Rückzüge,
+                die dein Slicer im echten Druck ohnehin auslöst, und schiebt
+                den Wert schrittweise nach. Gedacht für Drift durch Material,
+                Feuchte oder Temperatur — nicht für die Grundeinstellung.
+              </p>
+              <p className="control-note warn">
+                Seine Reichweite ist bewusst winzig: Pressure Advance insgesamt
+                <strong> ±0,01</strong>, Rückzug <strong>±0,30 mm</strong>.
+                Steht PA auf 0,040 und das Optimum liegt bei 0,060, kommt er
+                nie darüber hinaus. Ohne die Stufen 1–3 vorher läuft er also
+                ins Leere — erst messen, dann nachführen.
+              </p>
 
               <div className="control-toggles">
                 <label>
@@ -1615,153 +2157,6 @@ export default function Home() {
                 <p className="control-error">{status.control.lastError}</p>
               )}
 
-              <div className="phase-divider">
-                <span>Phase 2 · nur im Standby</span>
-              </div>
-
-              <div className="section-heading compact">
-                <div>
-                  <p className="eyebrow">Beaufsichtigter Test vor dem Druck</p>
-                  <h2>Rückzugs-Sweep</h2>
-                </div>
-                <span className="safety-note">
-                  {status.sweep.allowPrinterCommands
-                    ? "Bestätigung pro Lauf"
-                    : "Server-seitig gesperrt"}
-                </span>
-              </div>
-
-              <p className="control-note">
-                Misst die Rückzugslänge einmalig aus, bevor gedruckt wird. Der
-                Regler oben arbeitet umgekehrt: fortlaufend im laufenden Druck.
-                Beide können nie gleichzeitig aktiv sein.
-              </p>
-
-              <div className="field-group two">
-                <label>
-                  Von
-                  <span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="5"
-                      step="0.1"
-                      value={sweepRStart}
-                      onChange={(event) => setSweepRStart(event.target.value)}
-                    />
-                    mm
-                  </span>
-                </label>
-                <label>
-                  Bis
-                  <span>
-                    <input
-                      type="number"
-                      min="0.05"
-                      max="10"
-                      step="0.1"
-                      value={sweepRStop}
-                      onChange={(event) => setSweepRStop(event.target.value)}
-                    />
-                    mm
-                  </span>
-                </label>
-              </div>
-              <div className="field-group two">
-                <label>
-                  Schritt
-                  <span>
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="2"
-                      step="0.01"
-                      value={sweepRStep}
-                      onChange={(event) => setSweepRStep(event.target.value)}
-                    />
-                    mm
-                  </span>
-                </label>
-                <label>
-                  Zyklen je Wert
-                  <span>
-                    <input
-                      type="number"
-                      min="3"
-                      max="30"
-                      step="1"
-                      value={sweepCycles}
-                      onChange={(event) => setSweepCycles(event.target.value)}
-                    />
-                  </span>
-                </label>
-              </div>
-
-              {sweepConfirming ? (
-                <div className="confirm-box">
-                  <p>{sweepConfirmSummary}</p>
-                  <div className="confirm-actions">
-                    <button
-                      type="button"
-                      className="primary-button"
-                      disabled={sweepBusy}
-                      onClick={postSweepRun}
-                    >
-                      Ja, Sweep starten
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => setSweepConfirming(false)}
-                    >
-                      Abbrechen
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="arming-row">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={
-                      sweepBusy ||
-                      !status.sweep.allowPrinterCommands ||
-                      status.printer.printState !== "standby"
-                    }
-                    onClick={() => setSweepConfirming(true)}
-                  >
-                    Sweep an Drucker senden …
-                  </button>
-                </div>
-              )}
-
-              {status.printer.printState !== "standby" && (
-                <p className="control-error">
-                  Gesperrt: Drucker ist „{status.printer.printState || "unbekannt"}
-                  “ — der Sweep läuft nur im Standby und wird während eines
-                  Drucks serverseitig abgelehnt.
-                </p>
-              )}
-
-              <p className="control-note">
-                Erzeugt den markierten G10/G11-Sweep im Speicher und sendet ihn
-                direkt an Moonraker — keine G-Code-Datei nötig. Der aktuelle
-                Wert ({formatNumber(status.printer.retractLength, 2)} mm) wird
-                am Ende wiederhergestellt. Nur im Standby: Düse ≥ 10 mm über
-                dem Bett, Auffangbehälter, Recorder vorher starten und am
-                Drucker bleiben.
-              </p>
-              {status.sweep.lastRun && (
-                <p className="control-message">
-                  Letzter Lauf: {status.sweep.lastRun.retractValues.join(", ")}{" "}
-                  mm à {status.sweep.lastRun.cycles} Zyklen · Restore{" "}
-                  {formatNumber(status.sweep.lastRun.restoreRetractMm, 2)} mm
-                </p>
-              )}
-              {sweepMessage && <p className="control-message">{sweepMessage}</p>}
-              {status.sweep.lastError && (
-                <p className="control-error">{status.sweep.lastError}</p>
-              )}
             </article>
           </div>
 

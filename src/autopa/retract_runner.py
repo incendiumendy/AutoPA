@@ -16,7 +16,9 @@ import json
 
 from .adaptive import ARM_PHRASE
 from .apply_policy import apply_decision, validated_apply_bound
-from .retract_sweep import MAX_RETRACT_MM, build_retract_sweep
+from .retract_sweep import (
+    MAX_RETRACT_MM, MAX_RETRACT_SPEED_MM_S, MIN_RETRACT_SPEED_MM_S,
+    build_retract_sweep)
 from .sweep import decimal_range, validated_position
 
 
@@ -24,6 +26,16 @@ RUN_BOUNDS = {
     "r_start": (0.0, 5.0),
     "r_stop": (0.05, MAX_RETRACT_MM),
     "r_step": (0.01, 2.0),
+    "cycles": (3, 30),
+}
+# A speed sweep holds the length at the printer's configured value and varies
+# how fast the filament is pulled. Material viscosity decides how quickly the
+# melt can follow, so this is a separate stage rather than a second dimension
+# of the length sweep.
+SPEED_BOUNDS = {
+    "v_start": (MIN_RETRACT_SPEED_MM_S, MAX_RETRACT_SPEED_MM_S),
+    "v_stop": (MIN_RETRACT_SPEED_MM_S, MAX_RETRACT_SPEED_MM_S),
+    "v_step": (1.0, 40.0),
     "cycles": (3, 30),
 }
 MAX_VALUES = 25
@@ -96,6 +108,27 @@ class RetractSweepRunner:
         return payload.get("result", {}).get("status", {})
 
     @staticmethod
+    def _validated_speeds(payload):
+        values = {}
+        for key, limits in SPEED_BOUNDS.items():
+            raw = payload.get(key)
+            if isinstance(raw, bool) or not _finite(raw):
+                raise ValueError("%s must be a finite number" % key)
+            value = float(raw)
+            if not limits[0] <= value <= limits[1]:
+                raise ValueError("%s is outside the safe range" % key)
+            values[key] = value
+        values["cycles"] = int(values["cycles"])
+        if values["v_start"] >= values["v_stop"]:
+            raise ValueError("v_start must be smaller than v_stop")
+        speed_values = decimal_range(
+            values["v_start"], values["v_stop"], values["v_step"])
+        if len(speed_values) > MAX_VALUES:
+            raise ValueError(
+                "sweep would exceed %d retract speeds" % MAX_VALUES)
+        return values, speed_values
+
+    @staticmethod
     def _validated_values(payload):
         values = {}
         for key, limits in RUN_BOUNDS.items():
@@ -122,6 +155,8 @@ class RetractSweepRunner:
             "confirmationPhraseRequired": True,
             "bounds": {key: list(limits)
                        for key, limits in RUN_BOUNDS.items()},
+            "speedBounds": {key: list(limits)
+                            for key, limits in SPEED_BOUNDS.items()},
             "maxValues": MAX_VALUES,
             "lastRun": self.last_run,
             "lastError": self.last_error,
@@ -154,7 +189,13 @@ class RetractSweepRunner:
         if not _finite(retract_speed) or retract_speed <= 0:
             retract_speed = 35.0
 
-        values, retract_values = self._validated_values(payload)
+        speed_sweep = str(payload.get("mode", "length")) == "speed"
+        if speed_sweep:
+            values, speed_values = self._validated_speeds(payload)
+            retract_values = [float(restore_retract)]
+        else:
+            values, retract_values = self._validated_values(payload)
+            speed_values = None
         auto_apply = bool(payload.get("auto_apply", True))
         apply_bound = validated_apply_bound(
             payload.get("apply_bound"), "retract")
@@ -167,7 +208,10 @@ class RetractSweepRunner:
             restore_retract=float(restore_retract),
             start_x=position["start_x"], start_y=position["start_y"],
             start_z=position["start_z"], prime_e=position["prime_e"],
-            current_z=_current_z(status))
+            current_z=_current_z(status),
+            speed_values=speed_values,
+            restore_retract_speed=(
+                float(retract_speed) if speed_sweep else None))
         lines = gcode.splitlines()
         if len(lines) > MAX_SCRIPT_LINES:
             raise ValueError("generated sweep is unexpectedly large")
@@ -178,7 +222,12 @@ class RetractSweepRunner:
         self.last_run = {
             "startedAt": time.strftime(
                 "%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "mode": "speed" if speed_sweep else "length",
             "retractValues": retract_values,
+            "speedValues": speed_values,
+            "heldRetractMm": float(restore_retract) if speed_sweep else None,
+            "restoreRetractSpeedMmS": (
+                float(retract_speed) if speed_sweep else None),
             "cycles": values["cycles"],
             "restoreRetractMm": float(restore_retract),
             "startZMm": position["start_z"],

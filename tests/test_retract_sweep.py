@@ -10,6 +10,55 @@ class RetractSweepTest(unittest.TestCase):
             decimal_range(0.2, 0.6, 0.1),
             [0.2, 0.3, 0.4, 0.5, 0.6])
 
+    def test_speed_sweep_sets_and_restores_both_speeds(self):
+        gcode, plan = build_retract_sweep(
+            [0.8], cycles=3, speed_values=[20.0, 45.0],
+            restore_retract=0.8, restore_retract_speed=35.0)
+        self.assertEqual(plan["swept_variable"], "retract_speed")
+        self.assertEqual(plan["held_retract_length_mm"], 0.8)
+        # The length is held; only the speeds move, and both move together.
+        for speed in (20.0, 45.0):
+            self.assertIn(
+                "SET_RETRACTION RETRACT_LENGTH=0.8000 RETRACT_SPEED=%.4f "
+                "UNRETRACT_SPEED=%.4f UNRETRACT_EXTRA_LENGTH=0"
+                % (speed, speed), gcode)
+        # Leaving the last candidate active would silently reconfigure the
+        # printer, so both speeds are restored with the length.
+        self.assertIn(
+            "SET_RETRACTION RETRACT_LENGTH=0.8000 RETRACT_SPEED=35.0000 "
+            "UNRETRACT_SPEED=35.0000", gcode)
+        # The analysis needs to know which variable the cycle values belong to.
+        self.assertIn("AUTOPA_MARK EVENT=retract_sweep_mode VALUE=speed", gcode)
+        self.assertIn("AUTOPA_MARK EVENT=retract_start VALUE=45.0000:2", gcode)
+        # A faster retract shortens the cycle, so the timing must differ.
+        periods = [s["cycle_period_s"] for s in plan["segments"]]
+        self.assertGreater(periods[0], periods[1])
+
+    def test_length_sweep_still_marks_itself_as_a_length_sweep(self):
+        gcode, plan = build_retract_sweep(
+            [0.4, 0.8], cycles=3, restore_retract=0.6)
+        self.assertEqual(plan["swept_variable"], "retract_length")
+        self.assertIsNone(plan["speed_values_mm_s"])
+        self.assertIn(
+            "AUTOPA_MARK EVENT=retract_sweep_mode VALUE=length", gcode)
+        self.assertNotIn("RETRACT_SPEED=", gcode)
+
+    def test_speed_sweep_rejects_unsafe_input(self):
+        # Out of the safe band: the ALPS cannot see a skipping extruder.
+        with self.assertRaises(ValueError):
+            build_retract_sweep(
+                [0.8], cycles=3, speed_values=[200.0],
+                restore_retract=0.8, restore_retract_speed=35.0)
+        # Without a restore speed the printer would keep the last candidate.
+        with self.assertRaises(ValueError):
+            build_retract_sweep(
+                [0.8], cycles=3, speed_values=[20.0], restore_retract=0.8)
+        # A speed sweep holds exactly one length.
+        with self.assertRaises(ValueError):
+            build_retract_sweep(
+                [0.4, 0.8], cycles=3, speed_values=[20.0],
+                restore_retract=0.8, restore_retract_speed=35.0)
+
     def test_sweep_structure_and_restore(self):
         gcode, plan = build_retract_sweep(
             [0.4, 0.8], cycles=3, restore_retract=0.6)

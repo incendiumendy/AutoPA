@@ -97,7 +97,7 @@ test("the sweep dialog counts values the way the server does", async () => {
   assert.equal(count(0.2, 1.0, 0.3), 3);
 });
 
-test("keeps adaptive control and the sweep in one card, split by phase", async () => {
+test("guides through the three calibration stages in working order", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
@@ -107,22 +107,55 @@ test("keeps adaptive control and the sweep in one card, split by phase", async (
     "utf8",
   );
 
-  // The two used to be separate cards, which read as unrelated features even
-  // though they are the same tuning job in the two printer phases.
+  // One card, not several: measuring and tracking are the same tuning job.
   const cards = page.match(/className="adaptive-card"/g) ?? [];
-  assert.equal(cards.length, 1, "adaptive control and sweep share one card");
-  assert.match(page, /<h2>Adaptive PA & Auto-Retract<\/h2>/);
-  assert.match(page, /<h2>Rückzugs-Sweep<\/h2>/);
+  assert.equal(cards.length, 1, "the whole flow lives in one card");
 
-  // The card must say when each half applies - that was the actual confusion.
-  assert.match(page, /Phase 1 · nur im Druck/);
-  assert.match(page, /Phase 2 · nur im Standby/);
-  assert.match(css, /\.phase-divider \{/);
-  assert.match(css, /\.confirm-box \{/);
+  // Order follows the work, not the printer state. PA has to settle before
+  // retraction is measured, because it decides how much pressure stands in
+  // the nozzle when a retraction starts, and the in-print controller only
+  // makes sense once the three measurements exist.
+  const order = [
+    "Stufe 1 · Pressure Advance",
+    "Stufe 2 · Rückzugslänge",
+    "Stufe 3 · Rückzugsgeschwindigkeit",
+    "Zum Schluss · nur im laufenden Druck",
+  ].map((label) => page.indexOf(label));
+  assert.ok(
+    order.every((position) => position > 0),
+    "every stage label is present",
+  );
+  assert.deepEqual(
+    [...order].sort((a, b) => a - b),
+    order,
+    "stages appear in working order",
+  );
 
-  // The mutually exclusive printer-state gates must both survive the merge.
+  // A first-time visitor must not need the docs.
+  assert.match(css, /\.card-intro \{/);
+  assert.match(page, /className="card-intro"/);
+  assert.match(page, /Die Reihenfolge ist nicht beliebig/);
+  // The controller's tiny authority is the reason the stages come first.
+  assert.match(page, /±0,01/);
+  assert.match(page, /±0,30 mm/);
+
+  // The mutually exclusive printer-state gates must survive the merge.
   assert.match(page, /printState !== "standby"/);
   assert.match(page, /nur während „printing“/);
+});
+
+test("the speed stage is honest about what the sensor cannot see", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // There is no encoder, so a speed that grinds filament can still score
+  // well on pressure. The UI has to say so, and must never auto-apply it.
+  assert.match(page, /kein durchrutschendes oder/);
+  assert.match(page, /nie automatisch übernommen/);
+  assert.match(page, /auto_apply: false/);
+  assert.match(page, /mode: "speed"/);
 });
 
 test("renders opt-in bounded control without direct printer commands", async () => {

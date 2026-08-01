@@ -84,6 +84,26 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Rückzugsgeschwindigkeits-Sweep: `retract_sweep` kann jetzt statt der Länge
+  die Geschwindigkeit variieren und setzt dafür `RETRACT_SPEED` und
+  `UNRETRACT_SPEED` gemeinsam (5–120 mm/s), mit Wiederherstellung beider
+  Werte am Ende. Bisher wurde die Geschwindigkeit nie gesetzt — der
+  Parameter diente ausschließlich der Laufzeitschätzung, obwohl die
+  Materialzähigkeit sie zu einer der wichtigsten Größen macht.
+
+- Die Auswertung meldet das Ergebnis eines Geschwindigkeits-Sweeps als
+  `retract_speed_mm_s` statt als `retract_length_mm`. Dadurch greift die
+  begrenzte Auto-Übernahme von selbst nicht mehr — sie sucht ausschließlich
+  die Länge — und eine Geschwindigkeit kann konstruktionsbedingt nie als
+  Länge an `SET_RETRACTION` gehen.
+
+- Dashboard: Die Abstimmkarte führt jetzt als Assistent durch drei Stufen
+  (Pressure Advance → Rückzugslänge → Rückzugsgeschwindigkeit) und stellt
+  den Nachregler ans Ende. Die Reihenfolge folgt der Arbeit statt dem
+  Druckerzustand: PA bestimmt, wie viel Druck beim Rückzug ansteht. Jede
+  Stufe erklärt, was sie misst; die Karte ist ohne vorherige Doku
+  verständlich. Der PA-Sweep ist damit erstmals auch im Dashboard verfügbar.
+
 - Dashboard: „Rückzugs-Sweep" und „Adaptive PA & Auto-Retract" liegen jetzt
   in einer Karte, getrennt in Phase 1 (nur im laufenden Druck) und Phase 2
   (nur im Standby). Beide regeln dieselbe Größe in entgegengesetzten
@@ -214,6 +234,25 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- retraction-speed sweep: `retract_sweep` can now vary the speed instead of
+  the length, setting `RETRACT_SPEED` and `UNRETRACT_SPEED` together
+  (5-120 mm/s) and restoring both at the end. The speed was previously never
+  set at all - the parameter only fed the duration estimate - even though
+  material viscosity makes it one of the most important variables.
+
+- the analysis reports a speed sweep's winner as `retract_speed_mm_s` rather
+  than `retract_length_mm`. The bounded auto-apply path looks up the length
+  key only, so it now fails closed by construction and a speed can never be
+  sent to `SET_RETRACTION RETRACT_LENGTH`.
+
+- dashboard: the tuning card now guides through three stages (pressure
+  advance -> retract length -> retract speed) and places the in-print
+  controller last. The order follows the work rather than the printer state,
+  because PA decides how much pressure stands in the nozzle when a retraction
+  starts. Each stage explains what it measures, so the card is usable without
+  reading the docs first, and the PA sweep is available in the dashboard for
+  the first time.
 
 - dashboard: "Rückzugs-Sweep" and "Adaptive PA & Auto-Retract" now share one
   card, split into phase 1 (only while printing) and phase 2 (only in

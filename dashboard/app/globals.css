@@ -1216,6 +1216,30 @@ select {
   flex: 1;
 }
 
+/* Opening explanation of the calibration card. The dashboard has to be
+   usable without reading the docs first, so the intro states what the sensor
+   measures and why the stage order is not arbitrary. */
+.card-intro {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.card-intro strong {
+  color: var(--text);
+}
+
+/* A note that carries a real caveat rather than background information. */
+.control-note.warn {
+  border-left: 2px solid var(--amber);
+  padding-left: 10px;
+}
+
+.control-note.warn strong {
+  color: var(--amber);
+}
+
 /* Separates the two phases of the merged card. They can never both apply:
    phase 1 runs only while printing, phase 2 only in standby. */
 .phase-divider {
