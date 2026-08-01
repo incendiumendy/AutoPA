@@ -10,6 +10,9 @@ WorkingDirectory=AUTOPA_PROJECT_DIR
 Environment=PYTHONPATH=AUTOPA_PROJECT_DIR/src
 Environment=AUTOPA_CONTROL_STATE=/var/lib/autopa/control.json
 Environment=AUTOPA_ALLOW_PRINTER_COMMANDS=0
+Environment=AUTOPA_FILTER_STATE=/var/lib/autopa/chamber-filter.json
+Environment=AUTOPA_ALLOW_FILTER_COMMANDS=0
+Environment=AUTOPA_OUTPUT_ROOT=AUTOPA_DATA_DIR
 ExecStart=/usr/bin/python3 -m autopa.dashboard --host 0.0.0.0 --port 7126
 Restart=on-failure
 RestartSec=3
@@ -18,6 +21,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=AUTOPA_DATA_DIR
 
 [Install]
 WantedBy=multi-user.target

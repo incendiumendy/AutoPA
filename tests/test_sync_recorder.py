@@ -10,7 +10,8 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 from autopa.sync_recorder import (
-    ACCELEROMETER_ENDPOINTS, ETX, KlippyConnection, SynchronizedRecorder)
+    ACCELEROMETER_ENDPOINTS, ETX, KlippyConnection, SynchronizedRecorder,
+    summarize_acceleration_batch)
 
 
 class KlippyConnectionTest(unittest.TestCase):
@@ -46,6 +47,31 @@ class KlippyConnectionTest(unittest.TestCase):
         messages = self.connection.receive()
         self.assertEqual(
             messages[0]["method"], "autopa/acceleration")
+
+
+class AccelerationSummaryTest(unittest.TestCase):
+    def test_batch_summary_removes_gravity_and_keeps_motion_direction(self):
+        summary = summarize_acceleration_batch([
+            (1.0, 0.0, 0.0, 9800.0),
+            (1.1, 100.0, -50.0, 9900.0),
+            (1.2, -100.0, 50.0, 9700.0),
+        ])
+        self.assertEqual(100.0, summary["motion_x_mm_s2"])
+        self.assertEqual(-50.0, summary["motion_y_mm_s2"])
+        self.assertEqual(100.0, summary["motion_z_mm_s2"])
+        self.assertAlmostEqual(
+            81.65, summary["rms_x_mm_s2"], places=2)
+        self.assertAlmostEqual(
+            40.82, summary["rms_y_mm_s2"], places=2)
+
+    def test_stationary_gravity_has_zero_dynamic_motion(self):
+        summary = summarize_acceleration_batch([
+            (1.0, 0.0, 0.0, 9806.0),
+            (1.1, 0.0, 0.0, 9806.0),
+        ])
+        self.assertEqual(0.0, summary["motion_x_mm_s2"])
+        self.assertEqual(0.0, summary["motion_y_mm_s2"])
+        self.assertEqual(0.0, summary["motion_z_mm_s2"])
 
 
 class LiveStatusTest(unittest.TestCase):

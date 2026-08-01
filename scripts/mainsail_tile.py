@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 SUPPORTED_MAINSAIL_VERSIONS = {"2.18.2"}
-INTEGRATION_VERSION = 3
+INTEGRATION_VERSION = 5
 
 
 def _replace_once(path, old, new):
@@ -42,7 +42,9 @@ def _verify_source(source):
     return version
 
 
-def prepare_mainsail_source(source_path, output_path, component_path=None):
+def prepare_mainsail_source(
+        source_path, output_path, component_path=None,
+        localvision_component_path=None):
     """Copy a pinned upstream tree, integrate AutoPA, and return a manifest."""
     source = Path(source_path).resolve()
     output = Path(output_path).resolve()
@@ -51,12 +53,19 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         if component_path else
         Path(__file__).resolve().parents[1]
         / "integrations/mainsail/AutopaPanel.vue")
+    localvision_component = (
+        Path(localvision_component_path).resolve()
+        if localvision_component_path else
+        Path(__file__).resolve().parents[1]
+        / "integrations/mainsail/LocalvisionPanel.vue")
     if source == output or source in output.parents:
         raise ValueError("output must be separate from the source tree")
     if output.exists():
         raise FileExistsError(output)
     if not component.is_file():
         raise FileNotFoundError(component)
+    if not localvision_component.is_file():
+        raise FileNotFoundError(localvision_component)
     version = _verify_source(source)
 
     shutil.copytree(
@@ -66,18 +75,24 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
     target_component = (
         output / "src/components/panels/AutopaPanel.vue")
     shutil.copy2(component, target_component)
+    target_localvision_component = (
+        output / "src/components/panels/LocalvisionPanel.vue")
+    shutil.copy2(localvision_component, target_localvision_component)
 
     dashboard = output / "src/pages/Dashboard.vue"
     _replace_once(
         dashboard,
         "import AfcPanel from '@/components/panels/AfcPanel.vue'\n",
         "import AfcPanel from '@/components/panels/AfcPanel.vue'\n"
-        "import AutopaPanel from '@/components/panels/AutopaPanel.vue'\n")
+        "import AutopaPanel from '@/components/panels/AutopaPanel.vue'\n"
+        "import LocalvisionPanel from "
+        "'@/components/panels/LocalvisionPanel.vue'\n")
     _replace_once(
         dashboard,
         "        AfcPanel,\n",
         "        AfcPanel,\n"
-        "        AutopaPanel,\n")
+        "        AutopaPanel,\n"
+        "        LocalvisionPanel,\n")
 
     variables = output / "src/store/variables.ts"
     _replace_once(
@@ -85,7 +100,8 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "export const allDashboardPanels = [\n    'afc',\n",
         "export const allDashboardPanels = [\n"
         "    'afc',\n"
-        "    'autopa',\n")
+        "    'autopa',\n"
+        "    'localvision',\n")
 
     mixin = output / "src/components/mixins/dashboard.ts"
     _replace_once(
@@ -93,6 +109,7 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "    mdiMulticast,\n} from '@mdi/js'\n",
         "    mdiMulticast,\n"
         "    mdiChartTimelineVariant,\n"
+        "    mdiEyeOutline,\n"
         "} from '@mdi/js'\n")
     _replace_once(
         mixin,
@@ -100,6 +117,7 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "        if (name.startsWith('macrogroup_')) {\n",
         "    getPanelName(name: string) {\n"
         "        if (name === 'autopa') return 'AutoPA'\n\n"
+        "        if (name === 'localvision') return 'Local Vision'\n\n"
         "        if (name.startsWith('macrogroup_')) {\n")
     _replace_once(
         mixin,
@@ -108,6 +126,8 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "        switch (name) {\n"
         "            case 'autopa':\n"
         "                return mdiChartTimelineVariant\n"
+        "            case 'localvision':\n"
+        "                return mdiEyeOutline\n"
         "            case 'webcam':\n")
 
     navigation = output / "src/components/mixins/navigation.ts"
@@ -170,15 +190,27 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
         "source": str(source),
         "output": str(output),
         "panel": "autopa",
+        "panels": ["autopa", "localvision"],
         "api": "/autopa/api/status",
-        "optional_health": {
-            "local_vision": "/local-vision/api/health",
+        "local_vision_api": {
+            "health": "/local-vision/api/health",
+            "config": "/local-vision/api/config",
+            "calibration_plan": "/local-vision/api/camera/calibration/plan",
+            "calibration_prepare": (
+                "/local-vision/api/camera/calibration/prepare"),
+            "calibration_run": "/local-vision/api/camera/calibration/run",
+            "spaghetti_status": "/local-vision/api/spaghetti/status",
+            "spaghetti_prepare": "/local-vision/api/spaghetti/prepare",
+            "spaghetti_analyze": "/local-vision/api/spaghetti/analyze",
+            "spaghetti_cancel": "/local-vision/api/spaghetti/cancel",
         },
         "navigation_links": [
             "/autopa/",
             "/local-vision/",
         ],
-        "control_policy": "off_or_dry_run_only",
+        "control_policy": "passive_capture_and_off_or_dry_run_only",
+        "calibration_policy": (
+            "idle_only_checkbox_and_confirmation_g28_without_heating"),
         "source_modified": False,
     }
     public_dir = output / "public"
@@ -189,10 +221,12 @@ def prepare_mainsail_source(source_path, output_path, component_path=None):
             "format_version",
             "mainsail_version",
             "panel",
+            "panels",
             "api",
-            "optional_health",
+            "local_vision_api",
             "navigation_links",
             "control_policy",
+            "calibration_policy",
             "source_modified",
         )
     }

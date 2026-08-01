@@ -11,7 +11,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+import threading
+
 from .adaptive import AdaptiveController
+from .align import align_dataset
+from .analyze import analyze_dataset
+from .capture_manager import CaptureManager
+from .chamber_filter import ChamberFilterController
+from .quality import assess_dataset
+from .retract_analyze import analyze_retract_dataset
+from .retract_runner import RetractSweepRunner
+from .pa_runner import PaSweepRunner
+from .sync_recorder import ACCELEROMETER_ENDPOINTS
 
 
 MOONRAKER_QUERY = (
@@ -27,7 +38,8 @@ def _number(value):
 
 def build_dashboard_status(printer_status, live_status,
                            now_monotonic_ns=None, error=None,
-                           control_status=None):
+                           control_status=None, capture_manager_status=None,
+                           chamber_filter_status=None):
     """Create the stable browser API and report opt-in controller state."""
     now_monotonic_ns = now_monotonic_ns or time.monotonic_ns()
     printer_status = printer_status or {}
@@ -52,6 +64,19 @@ def build_dashboard_status(printer_status, live_status,
 
     force = live_status.get("force") or {}
     control_status = control_status or {}
+    capture_manager_status = capture_manager_status or {
+        "state": "disabled",
+        "active": False,
+        "canStart": False,
+        "canStop": False,
+        "printerAction": "none",
+    }
+    chamber_filter_status = chamber_filter_status or {
+        "state": "disabled",
+        "allowCommands": False,
+        "availableFans": [],
+        "printerAction": "none",
+    }
     controlled_pressure = control_status.get("pressure") or {}
     acceleration = live_status.get("acceleration") or {}
     accelerometer_config = live_status.get("accelerometer_config") or {}
@@ -139,8 +164,11 @@ def build_dashboard_status(printer_status, live_status,
         },
         "capture": {
             "state": capture_state,
-            "dataset": live_status.get("dataset"),
+            "dataset": (
+                capture_manager_status.get("dataset")
+                or live_status.get("dataset")),
             "ageSeconds": age_seconds,
+            "manager": capture_manager_status,
         },
         "sensors": {
             "alps": {
@@ -158,11 +186,26 @@ def build_dashboard_status(printer_status, live_status,
                 "name": accelerometer_name,
                 "state": accelerometer_state,
                 "magnitude": magnitude,
+                "motionX": _number(
+                    acceleration.get("motion_x_mm_s2")),
+                "motionY": _number(
+                    acceleration.get("motion_y_mm_s2")),
+                "motionZ": _number(
+                    acceleration.get("motion_z_mm_s2")),
+                "rmsX": _number(acceleration.get("rms_x_mm_s2")),
+                "rmsY": _number(acceleration.get("rms_y_mm_s2")),
+                "rmsZ": _number(acceleration.get("rms_z_mm_s2")),
                 "sampleRate": _number(sample_rates.get("acceleration")),
             },
             "lis2dw": {
                 "state": accelerometer_state,
                 "magnitude": magnitude,
+                "motionX": _number(
+                    acceleration.get("motion_x_mm_s2")),
+                "motionY": _number(
+                    acceleration.get("motion_y_mm_s2")),
+                "motionZ": _number(
+                    acceleration.get("motion_z_mm_s2")),
                 "sampleRate": _number(sample_rates.get("acceleration")),
             },
         },
@@ -171,18 +214,179 @@ def build_dashboard_status(printer_status, live_status,
             "message": quality_message,
         },
         "safety": {
-            "printerAction": control_status.get(
-                "printerAction", "none"),
+            "printerAction": (
+                chamber_filter_status.get("printerAction")
+                if chamber_filter_status.get("printerAction") != "none"
+                else control_status.get("printerAction", "none")),
         },
         "control": control_status,
+        "chamberFilter": chamber_filter_status,
     }
 
 
 class DashboardData:
-    def __init__(self, moonraker_url, live_status_path, controller=None):
+    def __init__(self, moonraker_url, live_status_path, controller=None,
+                 capture_manager=None, chamber_filter=None,
+                 sweep_runner=None, pa_sweep_runner=None,
+                 quality_fn=None, retract_analyzer=None, pa_analyzer=None,
+                 sleep_fn=None, align_fn=None):
         self.moonraker_url = moonraker_url.rstrip("/")
         self.live_status_path = Path(live_status_path).expanduser()
         self.controller = controller
+        self.capture_manager = capture_manager
+        self.chamber_filter = chamber_filter
+        self.sweep_runner = sweep_runner
+        self.pa_sweep_runner = pa_sweep_runner
+        self.quality_fn = quality_fn or assess_dataset
+        self.retract_analyzer = retract_analyzer or analyze_retract_dataset
+        self.pa_analyzer = pa_analyzer or analyze_dataset
+        self.sleep_fn = sleep_fn or time.sleep
+        self.align_fn = align_fn or align_dataset
+
+    def sweep_status(self):
+        return (
+            self.sweep_runner.status() if self.sweep_runner else {
+                "allowPrinterCommands": False,
+                "confirmationPhraseRequired": True,
+                "lastRun": None,
+                "lastError": "sweep_runner_disabled",
+                "printerAction": "none",
+            })
+
+    def run_sweep(self, payload):
+        if not self.sweep_runner:
+            raise RuntimeError("sweep runner disabled")
+        started_capture = self._maybe_start_sweep_capture(
+            payload, "retract-sweep")
+        try:
+            status = self.sweep_runner.run(payload)
+        except Exception:
+            self._stop_started_capture(started_capture, "sweep_rejected")
+            raise
+        self._schedule_post_sweep("retract", started_capture)
+        return status
+
+    def pa_sweep_status(self):
+        return (
+            self.pa_sweep_runner.status() if self.pa_sweep_runner else {
+                "allowPrinterCommands": False,
+                "confirmationPhraseRequired": True,
+                "lastRun": None,
+                "lastError": "pa_sweep_runner_disabled",
+                "printerAction": "none",
+            })
+
+    def run_pa_sweep(self, payload):
+        if not self.pa_sweep_runner:
+            raise RuntimeError("pa sweep runner disabled")
+        started_capture = self._maybe_start_sweep_capture(
+            payload, "pa-sweep")
+        try:
+            status = self.pa_sweep_runner.run(payload)
+        except Exception:
+            self._stop_started_capture(started_capture, "sweep_rejected")
+            raise
+        self._schedule_post_sweep("pa", started_capture)
+        return status
+
+    def _maybe_start_sweep_capture(self, payload, name):
+        """Auto-start a capture so the sweep can be analyzed afterwards."""
+        if not isinstance(payload, dict):
+            return False
+        if not payload.get("auto_apply", True):
+            return False
+        manager = self.capture_manager
+        if manager is None:
+            return False
+        try:
+            if not manager.status().get("canStart"):
+                return False
+            manager.start("standby", name)
+            return True
+        except Exception:
+            # A failed capture never blocks the confirmed sweep itself.
+            return False
+
+    def _stop_started_capture(self, started_capture, reason):
+        if not started_capture or self.capture_manager is None:
+            return
+        try:
+            self.capture_manager.stop(reason)
+        except Exception:
+            pass
+
+    def _schedule_post_sweep(self, kind, started_capture):
+        runner = (
+            self.sweep_runner if kind == "retract" else self.pa_sweep_runner)
+        last_run = runner.last_run or {}
+        if not last_run.get("autoApply"):
+            if started_capture:
+                self._stop_started_capture(True, "auto_apply_disabled")
+            return
+        duration = last_run.get("estimatedDurationS") or 0.0
+        try:
+            # The estimate excludes the positioning preamble, so keep a
+            # generous margin before stopping the capture.
+            wait = min(max(float(duration), 0.0) + 90.0, 900.0)
+        except (TypeError, ValueError):
+            wait = 900.0
+        thread = threading.Thread(
+            target=self._post_sweep_pipeline,
+            args=(kind, wait, started_capture),
+            name="autopa-post-sweep-%s" % kind,
+            daemon=True)
+        thread.start()
+
+    def _post_sweep_pipeline(self, kind, wait, started_capture):
+        runner = (
+            self.sweep_runner if kind == "retract" else self.pa_sweep_runner)
+        analyzer = (
+            self.retract_analyzer if kind == "retract" else self.pa_analyzer)
+        key = (
+            "retract_length_mm" if kind == "retract" else "pressure_advance")
+        source = None
+        try:
+            self.sleep_fn(wait)
+            dataset_dir = self._finish_sweep_capture(started_capture)
+            if not dataset_dir:
+                runner.record_apply_skip("no_capture_dataset")
+                return
+            source = os.path.basename(dataset_dir)
+            try:
+                self.align_fn(dataset_dir)
+                self.quality_fn(dataset_dir)
+            except Exception:
+                # A missing alignment or quality gate fails the analysis
+                # closed.
+                pass
+            result = analyzer(dataset_dir) or {}
+            recommendation = result.get("recommendation")
+            if not recommendation or recommendation.get(key) is None:
+                runner.record_apply_skip("no_recommendation", source=source)
+                return
+            runner.apply_recommendation(recommendation[key], source=source)
+        except Exception:
+            runner.record_apply_skip("analysis_failed", source=source)
+
+    def _finish_sweep_capture(self, started_capture):
+        manager = self.capture_manager
+        if manager is None:
+            return None
+        if started_capture:
+            self._stop_started_capture(True, "sweep_finished")
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if not manager.status().get("active"):
+                    break
+                self.sleep_fn(1.0)
+        status = manager.status()
+        if status.get("active"):
+            return None
+        dataset = status.get("dataset")
+        if not dataset:
+            return None
+        candidate = os.path.join(manager.output_root, dataset)
+        return candidate if os.path.isdir(candidate) else None
 
     def _printer_status(self):
         request = urllib.request.Request(
@@ -219,7 +423,67 @@ class DashboardData:
             control_status = None
         return build_dashboard_status(
             printer_status, self._live_status(), error=error,
-            control_status=control_status)
+            control_status=control_status,
+            capture_manager_status=self.capture_status(),
+            chamber_filter_status=self.filter_status())
+
+    def filter_status(self):
+        return (
+            self.chamber_filter.status() if self.chamber_filter else {
+                "state": "disabled",
+                "allowCommands": False,
+                "availableFans": [],
+                "filename": None,
+                "matchedProfile": None,
+                "activeFan": None,
+                "activeSpeedPercent": None,
+                "postRunSecondsRemaining": 0.0,
+                "configuredProfiles": 0,
+                "lastCommand": None,
+                "lastError": None,
+                "commandCount": 0,
+                "printerAction": "none",
+            })
+
+    def update_filter(self, payload):
+        if not self.chamber_filter:
+            raise RuntimeError("Chamber-Filter-Controller ist deaktiviert")
+        return self.chamber_filter.update_profiles(
+            payload.get("profiles"))
+
+    def capture_status(self):
+        return (
+            self.capture_manager.status() if self.capture_manager else {
+                "state": "disabled",
+                "active": False,
+                "canStart": False,
+                "canStop": False,
+                "dataset": None,
+                "mode": "disabled",
+                "attachedToPrint": False,
+                "stopReason": None,
+                "error": None,
+                "monitorError": None,
+                "stats": None,
+                "printerAction": "none",
+            })
+
+    def start_capture(self, payload):
+        if not self.capture_manager:
+            raise RuntimeError("Recorder-Manager ist deaktiviert")
+        printer_status = self._printer_status()
+        print_stats = printer_status.get("print_stats") or {}
+        print_state = print_stats.get("state")
+        requested_name = str(payload.get("name", "")).strip()
+        filename = Path(str(print_stats.get("filename", ""))).stem
+        default_name = filename if print_state == "printing" else "live-preview"
+        return self.capture_manager.start(
+            print_state, requested_name or default_name or "print")
+
+    def stop_capture(self):
+        if not self.capture_manager:
+            raise RuntimeError("Recorder-Manager ist deaktiviert")
+        return self.capture_manager.stop()
 
     def control_status(self):
         return (
@@ -253,6 +517,16 @@ def make_handler(data, static_dir):
     class DashboardHandler(BaseHTTPRequestHandler):
         server_version = "AutoPADashboard/0.1"
 
+        def handle_one_request(self):
+            # The tile and dashboard poll continuously; a browser that
+            # navigates away or a client that stops reading mid-response is
+            # normal traffic and must not print a traceback into the
+            # service log.
+            try:
+                BaseHTTPRequestHandler.handle_one_request(self)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+
         def _send_json(self, payload, status=200):
             body = json.dumps(
                 payload, separators=(",", ":")).encode("utf-8")
@@ -281,6 +555,18 @@ def make_handler(data, static_dir):
                 return
             if request_path == "/api/control":
                 self._send_json(data.control_status())
+                return
+            if request_path == "/api/capture":
+                self._send_json(data.capture_status())
+                return
+            if request_path == "/api/filter":
+                self._send_json(data.filter_status())
+                return
+            if request_path == "/api/sweep":
+                self._send_json(data.sweep_status())
+                return
+            if request_path == "/api/pa-sweep":
+                self._send_json(data.pa_sweep_status())
                 return
 
             relative = request_path.lstrip("/") or "index.html"
@@ -314,9 +600,13 @@ def make_handler(data, static_dir):
             if request_path.startswith("/autopa/"):
                 request_path = "/" + request_path[len("/autopa/"):]
             if request_path not in {
-                    "/api/control/config",
-                    "/api/control/arm",
-                    "/api/control/disarm"}:
+                     "/api/control/config",
+                     "/api/control/arm",
+                     "/api/control/disarm",
+                     "/api/capture/start",
+                     "/api/capture/stop",
+                     "/api/filter/config",
+                     "/api/sweep/run", "/api/pa-sweep/run"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -333,8 +623,18 @@ def make_handler(data, static_dir):
                     result = data.update_control(payload)
                 elif request_path == "/api/control/arm":
                     result = data.arm_control(payload)
-                else:
+                elif request_path == "/api/control/disarm":
                     result = data.disarm_control()
+                elif request_path == "/api/capture/start":
+                    result = data.start_capture(payload)
+                elif request_path == "/api/capture/stop":
+                    result = data.stop_capture()
+                elif request_path == "/api/sweep/run":
+                    result = data.run_sweep(payload)
+                elif request_path == "/api/pa-sweep/run":
+                    result = data.run_pa_sweep(payload)
+                else:
+                    result = data.update_filter(payload)
                 self._send_json(result)
             except PermissionError as exc:
                 self._send_json({"error": str(exc)}, status=403)
@@ -349,6 +649,24 @@ def make_handler(data, static_dir):
 
 def main():
     project_root = Path(__file__).resolve().parents[2]
+    configured_control_state = os.environ.get("AUTOPA_CONTROL_STATE")
+    managed_state_root = (
+        os.path.dirname(os.path.abspath(os.path.expanduser(
+            configured_control_state)))
+        if configured_control_state else None)
+    default_live_status = (
+        os.path.join(managed_state_root, "live.json")
+        if managed_state_root
+        else os.path.expanduser("~/printer_data/autopa/live.json"))
+    default_output_root = (
+        os.path.join(managed_state_root, "captures")
+        if managed_state_root
+        else os.path.expanduser("~/printer_data/autopa"))
+    default_filter_state = (
+        os.path.join(managed_state_root, "chamber-filter.json")
+        if managed_state_root
+        else os.path.expanduser(
+            "~/.local/state/autopa/chamber-filter.json"))
     parser = argparse.ArgumentParser(
         description="Serve the read-only AutoPA live dashboard")
     parser.add_argument("--host", default="127.0.0.1")
@@ -357,7 +675,8 @@ def main():
         "--moonraker-url", default="http://127.0.0.1:7125")
     parser.add_argument(
         "--live-status",
-        default=os.path.expanduser("~/printer_data/autopa/live.json"))
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_LIVE_STATUS", default_live_status)))
     parser.add_argument(
         "--static-dir",
         default=str(project_root / "dashboard" / "dist" / "client"))
@@ -373,14 +692,79 @@ def main():
             "AUTOPA_ALLOW_PRINTER_COMMANDS", "0") == "1",
         help=("Unlock transient, bounded PA/retraction commands. "
               "The dashboard still requires the confirmation phrase."))
+    parser.add_argument(
+        "--alps-device",
+        default=os.environ.get("AUTOPA_ALPS_DEVICE"),
+        help=("Factory FLY-ALPS serial device. If omitted, one unique "
+              "PressureLeveling USB device is discovered."))
+    parser.add_argument(
+        "--klippy-socket",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_KLIPPY_SOCKET",
+            "~/printer_data/comms/klippy.sock")))
+    parser.add_argument(
+        "--output-root",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_OUTPUT_ROOT", default_output_root)))
+    parser.add_argument(
+        "--accelerometer", default=os.environ.get(
+            "AUTOPA_ACCELEROMETER", "toolboard_t0"))
+    parser.add_argument(
+        "--accelerometer-type",
+        choices=(*ACCELEROMETER_ENDPOINTS, "none"),
+        default=os.environ.get("AUTOPA_ACCELEROMETER_TYPE", "lis2dw"))
+    parser.add_argument(
+        "--capture-max-duration", type=float,
+        default=float(os.environ.get(
+            "AUTOPA_CAPTURE_MAX_DURATION", 12 * 60 * 60)))
+    parser.add_argument(
+        "--filter-state",
+        default=os.path.expanduser(os.environ.get(
+            "AUTOPA_FILTER_STATE", default_filter_state)))
+    parser.add_argument(
+        "--allow-filter-commands", action="store_true",
+        default=os.environ.get(
+            "AUTOPA_ALLOW_FILTER_COMMANDS", "0") == "1",
+        help=("Unlock only validated SET_FAN_SPEED commands for configured "
+              "fan_generic chamber filters."))
     args = parser.parse_args()
     controller = AdaptiveController(
         args.live_status, args.control_state,
         moonraker_url=args.moonraker_url,
         allow_printer_commands=args.allow_printer_commands)
     controller.start()
+
+    def current_print_state():
+        request = urllib.request.Request(
+            args.moonraker_url
+            + "/printer/objects/query?print_stats",
+            headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            payload = json.load(response)
+        return (
+            payload.get("result", {}).get("status", {})
+            .get("print_stats", {}).get("state"))
+
+    capture_manager = CaptureManager(
+        args.alps_device, args.klippy_socket, args.output_root,
+        args.live_status, args.accelerometer, args.accelerometer_type,
+        print_state_provider=current_print_state,
+        max_duration=args.capture_max_duration)
+    chamber_filter = ChamberFilterController(
+        args.filter_state, moonraker_url=args.moonraker_url,
+        allow_commands=args.allow_filter_commands)
+    chamber_filter.start()
+    sweep_runner = RetractSweepRunner(
+        moonraker_url=args.moonraker_url,
+        allow_printer_commands=args.allow_printer_commands)
+    pa_sweep_runner = PaSweepRunner(
+        moonraker_url=args.moonraker_url,
+        allow_printer_commands=args.allow_printer_commands)
     data = DashboardData(
-        args.moonraker_url, args.live_status, controller=controller)
+        args.moonraker_url, args.live_status, controller=controller,
+        capture_manager=capture_manager, chamber_filter=chamber_filter,
+        sweep_runner=sweep_runner,
+        pa_sweep_runner=pa_sweep_runner)
     server = ThreadingHTTPServer(
         (args.host, args.port), make_handler(data, args.static_dir))
     print("AutoPA dashboard listening on http://%s:%d" % (
@@ -391,6 +775,8 @@ def main():
         pass
     finally:
         server.server_close()
+        chamber_filter.stop()
+        capture_manager.shutdown()
         controller.stop()
 
 

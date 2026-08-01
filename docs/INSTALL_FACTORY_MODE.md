@@ -13,6 +13,10 @@ digital probe firmware intact.
 
 ## Installation outline
 
+Choose a stable ALPS USB route first. A separate powered hub remains supported;
+the validated EBB42 Gen2 USB passthrough is documented in
+[EBB42_GEN2_USB_PASSTHROUGH.md](EBB42_GEN2_USB_PASSTHROUGH.md).
+
 1. Copy the project to a dedicated directory, for example
    `~/printer_data/autopa-project`.
 2. Copy or symlink `klipper/extras/autopa_clock.py` into

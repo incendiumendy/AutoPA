@@ -282,8 +282,9 @@ def analyze_dataset(dataset_dir):
         "printer_action": "none",
         "notes": [
             "Experimental step-response estimator.",
-            "A recommendation must be compared with plots and a conventional "
-            "Klipper PA calibration before use.",
+            "The analysis itself never applies anything; the bounded sweep "
+            "runner may apply a recommendation at runtime only, within the "
+            "configured deviation limit, and never persists it.",
             "LIS2DW motion RMS is diagnostic and is not part of the PA cost.",
             "Missing or implausible data suppresses the recommendation but "
             "never pauses or cancels a print.",
@@ -332,7 +333,8 @@ def analyze_combined_datasets(dataset_dirs, output_path=None):
         "notes": [
             "Only cycles from quality-gated datasets are pooled.",
             "At least three included cycles are required per PA value.",
-            "The result remains experimental and is never auto-applied.",
+            "The result remains experimental; any runtime apply happens only "
+            "through the bounded sweep runner within its deviation limit.",
         ],
     }
     if output_path:

@@ -98,7 +98,9 @@ def assess_dataset(dataset_dir, calibration_path=None):
         math.sqrt(sum(value * value for value in means))
         if acceleration_times else None)
     force_times = [value / 1e9 for value in force_times_ns]
-    force_gaps = _gap_stats(force_times, 0.006)
+    # USB bulk batching legitimately stalls a kHz stream for 10-20 ms and
+    # then delivers a burst; only stalls beyond 25 ms indicate real loss.
+    force_gaps = _gap_stats(force_times, 0.025)
     acceleration_gaps = _gap_stats(acceleration_times, 0.030)
     force_rate = _sample_rate(force_times)
     acceleration_rate = _sample_rate(acceleration_times)
@@ -117,15 +119,20 @@ def assess_dataset(dataset_dir, calibration_path=None):
         warnings.append("alignment_missing")
     elif alignment.get("clock_max_residual_ms", float("inf")) > 1.0:
         warnings.append("clock_alignment_residual_above_1ms")
+    # The align step replaces USB arrival times with a uniform
+    # sample-index grid, so arrival burstiness (USB bulk batching easily
+    # produces 10-20 ms bursts at kHz rates) does not distort the
+    # reconstructed print_time at all. Only a severely broken transport is
+    # still diagnostic; 25 ms RMS is far above normal batching.
     force_arrival_rms_residual_ms = (
         alignment.get("force_arrival_rms_residual_ms")
         if alignment is not None else None
     )
     if (
         force_arrival_rms_residual_ms is not None
-        and force_arrival_rms_residual_ms > 1.0
+        and force_arrival_rms_residual_ms > 25.0
     ):
-        warnings.append("force_arrival_rms_residual_above_1ms")
+        warnings.append("force_arrival_rms_residual_above_25ms")
     if alignment is not None and alignment.get("clock_points", 0) < 3:
         warnings.append("fewer_than_3_clock_sync_points")
     if not raw or not filtered:

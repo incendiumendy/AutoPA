@@ -26,6 +26,19 @@ type DashboardStatus = {
     state: SignalState;
     dataset: string | null;
     ageSeconds: number | null;
+    manager?: {
+      state: string;
+      active: boolean;
+      canStart: boolean;
+      canStop: boolean;
+      dataset: string | null;
+      mode?: "disabled" | "live_preview" | "print_bound";
+      attachedToPrint: boolean;
+      stopReason: string | null;
+      error: string | null;
+      monitorError: string | null;
+      printerAction: "none";
+    };
   };
   sensors: {
     alps: {
@@ -42,6 +55,12 @@ type DashboardStatus = {
       name: string | null;
       state: SignalState;
       magnitude: number | null;
+      motionX: number | null;
+      motionY: number | null;
+      motionZ: number | null;
+      rmsX: number | null;
+      rmsY: number | null;
+      rmsZ: number | null;
       sampleRate: number | null;
     };
   };
@@ -86,6 +105,46 @@ type DashboardStatus = {
     lastCommand: string | null;
     lastError: string | null;
   };
+  chamberFilter: {
+    state: string;
+    allowCommands: boolean;
+    availableFans: string[];
+    filename: string | null;
+    matchedProfile: {
+      name: string;
+      filter_tag: string;
+      filter_fan: string;
+      filter_speed_percent: number;
+      filter_post_run_minutes: number;
+    } | null;
+    activeFan: string | null;
+    activeSpeedPercent: number | null;
+    postRunSecondsRemaining: number;
+    configuredProfiles: number;
+    lastCommand: string | null;
+    lastError: string | null;
+    commandCount: number;
+    printerAction: "none" | "chamber_filter_only";
+  };
+  sweep: SweepStatus;
+};
+
+type SweepLastRun = {
+  startedAt: string;
+  retractValues: number[];
+  cycles: number;
+  restoreRetractMm: number;
+  estimatedDurationS: number;
+  filamentLengthMm: number;
+  scriptLines: number;
+};
+
+type SweepStatus = {
+  allowPrinterCommands: boolean;
+  confirmationPhraseRequired: boolean;
+  lastRun: SweepLastRun | null;
+  lastError: string | null;
+  printerAction: "none";
 };
 
 type MaterialProfile = {
@@ -103,11 +162,25 @@ type MaterialProfile = {
   paStop: number;
   paStep: number;
   cycles: number;
+  filterEnabled: boolean;
+  filterTag: string;
+  filterFan: string;
+  filterSpeedPercent: number;
+  filterPostRunMinutes: number;
+};
+
+const FILTER_DEFAULTS = {
+  filterEnabled: false,
+  filterFan: "chamber_filter",
+  filterSpeedPercent: 100,
+  filterPostRunMinutes: 20,
 };
 
 type PlotPoint = {
-  force: number;
-  acceleration: number;
+  pressure: number;
+  motionX: number;
+  motionY: number;
+  motionZ: number;
   temperature: number;
   target: number;
 };
@@ -128,6 +201,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.05,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[PLA]",
   },
   {
     id: "petg",
@@ -144,6 +219,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[PETG]",
   },
   {
     id: "abs",
@@ -160,6 +237,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[ABS]",
   },
   {
     id: "asa",
@@ -176,6 +255,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.06,
     paStep: 0.01,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[ASA]",
   },
   {
     id: "tpu",
@@ -192,6 +273,8 @@ const DEFAULT_PROFILES: MaterialProfile[] = [
     paStop: 0.12,
     paStep: 0.02,
     cycles: 3,
+    ...FILTER_DEFAULTS,
+    filterTag: "[TPU]",
   },
 ];
 
@@ -213,7 +296,23 @@ const EMPTY_STATUS: DashboardStatus = {
     retractLength: null,
     retractSpeed: null,
   },
-  capture: { state: "waiting", dataset: null, ageSeconds: null },
+  capture: {
+    state: "waiting",
+    dataset: null,
+    ageSeconds: null,
+    manager: {
+      state: "disabled",
+      active: false,
+      canStart: false,
+      canStop: false,
+      dataset: null,
+      attachedToPrint: false,
+      stopReason: null,
+      error: null,
+      monitorError: null,
+      printerAction: "none",
+    },
+  },
   sensors: {
     alps: {
       state: "waiting",
@@ -229,6 +328,12 @@ const EMPTY_STATUS: DashboardStatus = {
       name: null,
       state: "waiting",
       magnitude: null,
+      motionX: null,
+      motionY: null,
+      motionZ: null,
+      rmsX: null,
+      rmsY: null,
+      rmsZ: null,
       sampleRate: null,
     },
   },
@@ -261,6 +366,28 @@ const EMPTY_STATUS: DashboardStatus = {
     lastCommand: null,
     lastError: null,
   },
+  chamberFilter: {
+    state: "disabled",
+    allowCommands: false,
+    availableFans: [],
+    filename: null,
+    matchedProfile: null,
+    activeFan: null,
+    activeSpeedPercent: null,
+    postRunSecondsRemaining: 0,
+    configuredProfiles: 0,
+    lastCommand: null,
+    lastError: null,
+    commandCount: 0,
+    printerAction: "none",
+  },
+  sweep: {
+    allowPrinterCommands: false,
+    confirmationPhraseRequired: true,
+    lastRun: null,
+    lastError: null,
+    printerAction: "none",
+  },
 };
 
 const STATUS_LABEL: Record<SignalState, string> = {
@@ -272,6 +399,54 @@ const STATUS_LABEL: Record<SignalState, string> = {
 
 function formatNumber(value: number | null, digits = 1) {
   return value === null || Number.isNaN(value) ? "—" : value.toFixed(digits);
+}
+
+const PRESSURE_DISPLAY_DEADBAND = 0.1;
+const MOTION_DISPLAY_DEADBAND_MM_S2 = 200;
+const DISPLAY_SMOOTHING_ALPHA = 0.42;
+
+type SmoothedSensorValues = {
+  pressure: number | null;
+  motionX: number | null;
+  motionY: number | null;
+  motionZ: number | null;
+  rmsX: number | null;
+  rmsY: number | null;
+  rmsZ: number | null;
+};
+
+function smoothDisplayValue(
+  previous: number | null,
+  next: number | null,
+) {
+  if (next === null || Number.isNaN(next)) return null;
+  if (previous === null || Number.isNaN(previous)) return next;
+  return previous + (next - previous) * DISPLAY_SMOOTHING_ALPHA;
+}
+
+function formatSignedRelative(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "—";
+  if (Math.abs(value) < PRESSURE_DISPLAY_DEADBAND) return "≈ 0 %";
+  const percent = value * 100;
+  return `${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(1)} %`;
+}
+
+function motionForDisplay(value: number | null) {
+  if (value === null || Number.isNaN(value)) return null;
+  return Math.abs(value) < MOTION_DISPLAY_DEADBAND_MM_S2 ? 0 : value;
+}
+
+function pressureMarkerPosition(value: number | null) {
+  if (value === null || Number.isNaN(value)) return 50;
+  const displayed =
+    Math.abs(value) < PRESSURE_DISPLAY_DEADBAND ? 0 : value;
+  return 50 + Math.tanh(displayed / 1.5) * 42;
+}
+
+function formatMotion(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "—";
+  const converted = value / 1000;
+  return `${converted > 0 ? "+" : converted < 0 ? "−" : ""}${Math.abs(converted).toFixed(2)}`;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -415,6 +590,193 @@ function LineChart({
   );
 }
 
+function LiveIndicator({
+  isLive,
+  idleLabel,
+}: {
+  isLive: boolean;
+  idleLabel: string;
+}) {
+  return (
+    <span
+      className={`live-indicator ${isLive ? "is-live" : ""}`}
+      aria-label={isLive ? "Live-Daten aktiv" : idleLabel}
+    >
+      <span aria-hidden="true" />
+      {isLive ? "Live" : idleLabel}
+    </span>
+  );
+}
+
+function PressureSignalCard({
+  normalized,
+  delta,
+  isLive,
+}: {
+  normalized: number | null;
+  delta: number | null;
+  isLive: boolean;
+}) {
+  const markerPosition = pressureMarkerPosition(normalized);
+  return (
+    <article className="chart-card pressure-signal-card">
+      <div className="chart-header">
+        <div>
+          <p className="eyebrow">FLY-ALPS</p>
+          <h3>Düsendruck</h3>
+        </div>
+        <p className="chart-value pressure-signal-value">
+          {formatSignedRelative(normalized)}
+          <span>relatives Signal</span>
+        </p>
+      </div>
+      <div className="pressure-signal-visual">
+        <div
+          className="pressure-signal-scale"
+          aria-label="Düsendruck relativ zum Nullpunkt"
+        >
+          <span className="pressure-signal-zero" />
+          <span
+            className="pressure-signal-marker"
+            style={{ left: `${markerPosition}%` }}
+          />
+        </div>
+        <div className="pressure-direction-labels" aria-hidden="true">
+          <span>−</span>
+          <span>0</span>
+          <span>+</span>
+        </div>
+      </div>
+      <div className="signal-detail-row">
+        <span>Δ {formatNumber(delta, 0)} counts</span>
+        <span>− Zug · + Druck</span>
+      </div>
+      <div className="chart-footer">
+        <span>Nullpunktbezogen</span>
+        <LiveIndicator isLive={isLive} idleLabel="Kein Live-Stream" />
+      </div>
+    </article>
+  );
+}
+
+function MotionVectorCard({
+  sensorType,
+  enabled,
+  x,
+  y,
+  z,
+  rmsX,
+  rmsY,
+  rmsZ,
+  history,
+  isLive,
+}: {
+  sensorType: string;
+  enabled: boolean;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  rmsX: number | null;
+  rmsY: number | null;
+  rmsZ: number | null;
+  history: PlotPoint[];
+  isLive: boolean;
+}) {
+  const displayedX = motionForDisplay(x);
+  const displayedY = motionForDisplay(y);
+  const displayedZ = motionForDisplay(z);
+  const recentMaximum = Math.max(
+    0,
+    ...history.flatMap((point) => [
+      Math.abs(point.motionX),
+      Math.abs(point.motionY),
+      Math.abs(point.motionZ),
+    ]),
+    Math.abs(displayedX ?? 0),
+    Math.abs(displayedY ?? 0),
+    Math.abs(displayedZ ?? 0),
+  );
+  const scale = Math.max(
+    5000,
+    Math.ceil((recentMaximum * 1.5) / 5000) * 5000,
+  );
+  const xPosition =
+    50 + Math.max(-1, Math.min(1, (displayedX ?? 0) / scale)) * 42;
+  const yPosition =
+    50 - Math.max(-1, Math.min(1, (displayedY ?? 0) / scale)) * 42;
+  const zOffset =
+    Math.max(-1, Math.min(1, (displayedZ ?? 0) / scale)) * 42;
+  const measuredRms =
+    rmsX === null || rmsY === null || rmsZ === null
+      ? null
+      : Math.sqrt(rmsX ** 2 + rmsY ** 2 + rmsZ ** 2);
+  const rmsTotal =
+    measuredRms !== null &&
+    measuredRms < MOTION_DISPLAY_DEADBAND_MM_S2
+      ? 0
+      : measuredRms;
+  const idleLabel = enabled ? "Kein Live-Stream" : "Deaktiviert";
+
+  return (
+    <article className="chart-card motion-vector-card">
+      <div className="chart-header">
+        <div>
+          <p className="eyebrow">
+            {enabled ? sensorType.toUpperCase() : "OPTIONAL"}
+          </p>
+          <h3>Bewegung X / Y / Z</h3>
+        </div>
+        <p className="chart-value motion-rms-value">
+          {formatMotion(rmsTotal)}
+          <span>m/s² RMS</span>
+        </p>
+      </div>
+      <div className="motion-visual">
+        <div className="xy-cross" aria-label="X-Y-Bewegungskreuz">
+          <span className="xy-axis xy-axis-x" />
+          <span className="xy-axis xy-axis-y" />
+          <span className="axis-label axis-label-x-minus">−X</span>
+          <span className="axis-label axis-label-x-plus">+X</span>
+          <span className="axis-label axis-label-y-minus">−Y</span>
+          <span className="axis-label axis-label-y-plus">+Y</span>
+          <span
+            className={`xy-motion-dot ${isLive ? "is-live" : ""}`}
+            style={{ left: `${xPosition}%`, top: `${yPosition}%` }}
+          />
+        </div>
+        <div className="z-meter-wrap">
+          <span>+Z</span>
+          <div className="z-meter" aria-label="Z-Bewegungsbalken">
+            <span className="z-zero" />
+            <span
+              className={`z-fill ${zOffset < 0 ? "is-negative" : ""}`}
+              style={{
+                height: `${Math.abs(zOffset)}%`,
+                bottom: zOffset >= 0 ? "50%" : `${50 + zOffset}%`,
+              }}
+            />
+            <span
+              className="z-marker"
+              style={{ bottom: `${50 + zOffset}%` }}
+            />
+          </div>
+          <span>−Z</span>
+        </div>
+      </div>
+      <div className="motion-values">
+        <span>X <strong>{formatMotion(displayedX)}</strong></span>
+        <span>Y <strong>{formatMotion(displayedY)}</strong></span>
+        <span>Z <strong>{formatMotion(displayedZ)}</strong></span>
+        <small>m/s² · Offset/Schwerkraft entfernt</small>
+      </div>
+      <div className="chart-footer">
+        <span>Skala ±{formatNumber(scale / 1000, 0)} m/s²</span>
+        <LiveIndicator isLive={isLive} idleLabel={idleLabel} />
+      </div>
+    </article>
+  );
+}
+
 function StateDot({ state }: { state: SignalState }) {
   return (
     <span className={`state-dot state-${state}`}>
@@ -424,56 +786,18 @@ function StateDot({ state }: { state: SignalState }) {
   );
 }
 
-function PressureGauge({
-  value,
-  baseline,
-  delta,
-  normalized,
-}: {
-  value: number | null;
-  baseline: number | null;
-  delta: number | null;
-  normalized: number | null;
-}) {
-  const percentage =
-    normalized === null ? 50 : Math.max(0, Math.min(100, 50 + normalized * 35));
-  return (
-    <article className="pressure-gauge-card">
-      <div className="section-heading compact">
-        <div>
-          <p className="eyebrow">FLY-ALPS · LIVE</p>
-          <h2>Druck auf der Düse</h2>
-        </div>
-        <strong className="pressure-main-value">
-          {formatNumber(delta, 0)} <span>counts relativ</span>
-        </strong>
-      </div>
-      <div className="pressure-scale" aria-label="Relativer Düsendruck">
-        <span className="pressure-zero" />
-        <span className="pressure-marker" style={{ left: `${percentage}%` }} />
-      </div>
-      <div className="pressure-scale-labels">
-        <span>Unterdruck</span>
-        <span>Nullpunkt</span>
-        <span>Düsendruck</span>
-      </div>
-      <div className="pressure-values">
-        <div><span>Rohwert</span><strong>{formatNumber(value, 0)}</strong></div>
-        <div><span>Nullpunkt</span><strong>{formatNumber(baseline, 0)}</strong></div>
-        <div>
-          <span>Normiert</span>
-          <strong>
-            {normalized === null ? "—" : `${(normalized * 100).toFixed(0)} %`}
-          </strong>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export default function Home() {
   const [status, setStatus] = useState<DashboardStatus>(EMPTY_STATUS);
   const [history, setHistory] = useState<PlotPoint[]>([]);
+  const smoothedSensors = useRef<SmoothedSensorValues>({
+    pressure: null,
+    motionX: null,
+    motionY: null,
+    motionZ: null,
+    rmsX: null,
+    rmsY: null,
+    rmsZ: null,
+  });
   const [profiles, setProfiles] =
     useState<MaterialProfile[]>(DEFAULT_PROFILES);
   const [selectedId, setSelectedId] = useState("pla");
@@ -481,6 +805,16 @@ export default function Home() {
   const [armPhrase, setArmPhrase] = useState("");
   const [controlBusy, setControlBusy] = useState(false);
   const [controlMessage, setControlMessage] = useState("");
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureMessage, setCaptureMessage] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
+  const [sweepRStart, setSweepRStart] = useState("0.2");
+  const [sweepRStop, setSweepRStop] = useState("1.4");
+  const [sweepRStep, setSweepRStep] = useState("0.2");
+  const [sweepCycles, setSweepCycles] = useState("5");
+  const [sweepPhrase, setSweepPhrase] = useState("");
+  const [sweepBusy, setSweepBusy] = useState(false);
+  const [sweepMessage, setSweepMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -489,16 +823,29 @@ export default function Home() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as Array<
-          MaterialProfile | Omit<MaterialProfile, "id">
+          Partial<MaterialProfile> & Pick<MaterialProfile, "name">
         >;
         if (Array.isArray(parsed) && parsed.length) {
-          const migrated = parsed.map((profile, index) => ({
-            ...profile,
-            id:
-              "id" in profile && profile.id
-                ? profile.id
-                : `migrated-${index}-${profile.name.toLowerCase()}`,
-          }));
+          const migrated = parsed.map((profile, index) => {
+            const basis =
+              DEFAULT_PROFILES.find(
+                (candidate) => candidate.name === profile.name,
+              ) ?? DEFAULT_PROFILES[0];
+            return {
+              ...basis,
+              ...profile,
+              id:
+                profile.id ??
+                `migrated-${index}-${profile.name.toLowerCase()}`,
+              filterEnabled: Boolean(profile.filterEnabled ?? false),
+              filterTag:
+                profile.filterTag ??
+                `[${profile.name.toUpperCase().replaceAll(" ", "_")}]`,
+              filterFan: profile.filterFan ?? "chamber_filter",
+              filterSpeedPercent: profile.filterSpeedPercent ?? 100,
+              filterPostRunMinutes: profile.filterPostRunMinutes ?? 20,
+            };
+          });
           setProfiles(migrated);
           setSelectedId(migrated[0].id);
         }
@@ -515,13 +862,71 @@ export default function Home() {
         const response = await fetch("api/status", { cache: "no-store" });
         if (!response.ok) throw new Error("status unavailable");
         const next = (await response.json()) as DashboardStatus;
+        try {
+          const sweepResponse = await fetch("api/sweep", { cache: "no-store" });
+          if (sweepResponse.ok) next.sweep = await sweepResponse.json();
+        } catch {
+          // Sweep status is optional; the card keeps its previous state.
+        }
         if (!active) return;
-        setStatus(next);
+        const previous = smoothedSensors.current;
+        const displayed = {
+          pressure: smoothDisplayValue(
+            previous.pressure,
+            next.sensors.alps.normalized,
+          ),
+          motionX: smoothDisplayValue(
+            previous.motionX,
+            next.sensors.accelerometer.motionX,
+          ),
+          motionY: smoothDisplayValue(
+            previous.motionY,
+            next.sensors.accelerometer.motionY,
+          ),
+          motionZ: smoothDisplayValue(
+            previous.motionZ,
+            next.sensors.accelerometer.motionZ,
+          ),
+          rmsX: smoothDisplayValue(
+            previous.rmsX,
+            next.sensors.accelerometer.rmsX,
+          ),
+          rmsY: smoothDisplayValue(
+            previous.rmsY,
+            next.sensors.accelerometer.rmsY,
+          ),
+          rmsZ: smoothDisplayValue(
+            previous.rmsZ,
+            next.sensors.accelerometer.rmsZ,
+          ),
+        };
+        smoothedSensors.current = displayed;
+        setStatus({
+          ...next,
+          sensors: {
+            ...next.sensors,
+            alps: {
+              ...next.sensors.alps,
+              normalized: displayed.pressure,
+            },
+            accelerometer: {
+              ...next.sensors.accelerometer,
+              motionX: displayed.motionX,
+              motionY: displayed.motionY,
+              motionZ: displayed.motionZ,
+              rmsX: displayed.rmsX,
+              rmsY: displayed.rmsY,
+              rmsZ: displayed.rmsZ,
+            },
+          },
+        });
         setHistory((current) => [
           ...current,
           {
-            force: next.sensors.alps.value ?? 0,
-            acceleration: next.sensors.accelerometer.magnitude ?? 0,
+            pressure: next.sensors.alps.normalized ?? 0,
+            motionX: next.sensors.accelerometer.motionX ?? 0,
+            motionY: next.sensors.accelerometer.motionY ?? 0,
+            motionZ: next.sensors.accelerometer.motionZ ?? 0,
             temperature: next.printer.temperature ?? 0,
             target: next.printer.target ?? 0,
           },
@@ -554,12 +959,20 @@ export default function Home() {
   const selectedProfile =
     profiles.find((profile) => profile.id === selectedId) ?? profiles[0];
 
-  const updateProfile = (field: keyof MaterialProfile, value: string) => {
-    const parsed = (
-      field === "id" || field === "name" || field === "manufacturer"
-        ? value
-        : Number(value)
-    );
+  const updateProfile = (
+    field: keyof MaterialProfile,
+    value: string | boolean,
+  ) => {
+    const parsed =
+      field === "filterEnabled"
+        ? Boolean(value)
+        : field === "id" ||
+            field === "name" ||
+            field === "manufacturer" ||
+            field === "filterTag" ||
+            field === "filterFan"
+          ? value
+          : Number(value);
     setProfiles((current) =>
       current.map((profile) =>
         profile.id === selectedId
@@ -568,15 +981,54 @@ export default function Home() {
       ),
     );
     setSaved(false);
+    setProfileMessage("");
   };
 
-  const saveProfiles = () => {
+  const saveProfiles = async () => {
     window.localStorage.setItem(
       "autopa-material-profiles-v3",
       JSON.stringify(profiles),
     );
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1800);
+    setProfileMessage("");
+    try {
+      const response = await fetch("api/filter/config", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profiles: profiles.map((profile) => ({
+            id: profile.id,
+            name: profile.name,
+            filter_enabled: profile.filterEnabled,
+            filter_tag: profile.filterTag,
+            filter_fan: profile.filterFan,
+            filter_speed_percent: profile.filterSpeedPercent,
+            filter_post_run_minutes: profile.filterPostRunMinutes,
+          })),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "Filterprofil konnte nicht gespeichert werden",
+        );
+      }
+      setStatus((current) => ({ ...current, chamberFilter: result }));
+      setSaved(true);
+      setProfileMessage(
+        result.allowCommands
+          ? "Profile und Filterregeln gespeichert."
+          : "Filterregeln gespeichert; automatische Lüfterbefehle sind serverseitig gesperrt.",
+      );
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      setSaved(false);
+      setProfileMessage(
+        error instanceof Error
+          ? error.message
+          : "Filterprofil konnte nicht gespeichert werden",
+      );
+    }
   };
 
   const addProfile = () => {
@@ -651,6 +1103,74 @@ export default function Home() {
       );
     } finally {
       setControlBusy(false);
+    }
+  };
+
+  const postCapture = async (action: "start" | "stop") => {
+    setCaptureBusy(true);
+    setCaptureMessage("");
+    try {
+      const response = await fetch(`api/capture/${action}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error ?? "Messung konnte nicht geändert werden");
+      }
+      setStatus((current) => ({
+        ...current,
+        capture: { ...current.capture, manager: result },
+      }));
+      setCaptureMessage(
+        action === "start"
+          ? result.attachedToPrint
+            ? "Live-Daten sind eingeschaltet und enden automatisch mit dem Druck."
+            : "Live-Daten sind eingeschaltet. Ein neuer Druck wird automatisch erkannt."
+          : "Live-Daten werden sauber ausgeschaltet.",
+      );
+    } catch (error) {
+      setCaptureMessage(
+        error instanceof Error ? error.message : "Messung fehlgeschlagen",
+      );
+    } finally {
+      setCaptureBusy(false);
+    }
+  };
+
+  const postSweepRun = async () => {
+    setSweepBusy(true);
+    setSweepMessage("");
+    try {
+      const response = await fetch("api/sweep/run", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phrase: sweepPhrase,
+          r_start: Number(sweepRStart),
+          r_stop: Number(sweepRStop),
+          r_step: Number(sweepRStep),
+          cycles: Number(sweepCycles),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
+      setStatus((current) => ({ ...current, sweep: result }));
+      setSweepMessage(
+        result.lastRun
+          ? `Sweep gesendet: ${result.lastRun.retractValues.length} Werte à ${result.lastRun.cycles} Zyklen, ca. ${Math.round(result.lastRun.estimatedDurationS)} s. Am Drucker bleiben!`
+          : "Sweep gesendet.",
+      );
+      setSweepPhrase("");
+    } catch (error) {
+      setSweepMessage(
+        error instanceof Error ? error.message : "Sweep fehlgeschlagen",
+      );
+    } finally {
+      setSweepBusy(false);
     }
   };
 
@@ -757,41 +1277,28 @@ export default function Home() {
             <span className="window-label">60-Sekunden-Fenster</span>
           </div>
           <div className="chart-grid">
-            <LineChart
-              eyebrow="FLY-ALPS"
-              title="Düsendruck"
-              values={history.map((point) => point.force)}
-              color="#b98cff"
-              value={formatNumber(status.sensors.alps.value, 0)}
-              unit="counts"
+            <PressureSignalCard
+              normalized={status.sensors.alps.normalized}
+              delta={status.sensors.alps.delta}
               isLive={
                 status.capture.state === "ok" &&
                 status.sensors.alps.state === "ok"
               }
             />
-            <LineChart
-              eyebrow={
-                status.sensors.accelerometer.enabled
-                  ? status.sensors.accelerometer.type.toUpperCase()
-                  : "OPTIONAL"
-              }
-              title="Bewegung"
-              values={history.map((point) => point.acceleration)}
-              color="#58dbc2"
-              value={formatNumber(
-                status.sensors.accelerometer.magnitude,
-                0,
-              )}
-              unit="mm/s²"
+            <MotionVectorCard
+              sensorType={status.sensors.accelerometer.type}
+              enabled={status.sensors.accelerometer.enabled}
+              x={status.sensors.accelerometer.motionX}
+              y={status.sensors.accelerometer.motionY}
+              z={status.sensors.accelerometer.motionZ}
+              rmsX={status.sensors.accelerometer.rmsX}
+              rmsY={status.sensors.accelerometer.rmsY}
+              rmsZ={status.sensors.accelerometer.rmsZ}
+              history={history}
               isLive={
                 status.capture.state === "ok" &&
                 status.sensors.accelerometer.enabled &&
                 status.sensors.accelerometer.state === "ok"
-              }
-              idleLabel={
-                status.sensors.accelerometer.enabled
-                  ? "Kein Live-Stream"
-                  : "Deaktiviert"
               }
             />
             <LineChart
@@ -885,12 +1392,6 @@ export default function Home() {
                 ] ?? "Kontext fehlt – PA bleibt unverändert"}
               </p>
             </article>
-            <PressureGauge
-              value={status.sensors.alps.value}
-              baseline={status.sensors.alps.baseline}
-              delta={status.sensors.alps.delta}
-              normalized={status.sensors.alps.normalized}
-            />
             <article className="adaptive-card">
               <div className="section-heading compact">
                 <div>
@@ -1044,6 +1545,131 @@ export default function Home() {
                 <p className="control-error">{status.control.lastError}</p>
               )}
             </article>
+
+            <article className="adaptive-card">
+              <div className="section-heading compact">
+                <div>
+                  <p className="eyebrow">Überwachter Test vor dem Druck</p>
+                  <h2>Rückzugs-Sweep</h2>
+                </div>
+                <span className="safety-note">
+                  {status.sweep.allowPrinterCommands
+                    ? "Bestätigung pro Lauf"
+                    : "Server-seitig gesperrt"}
+                </span>
+              </div>
+
+              <div className="field-group two">
+                <label>
+                  Von
+                  <span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={sweepRStart}
+                      onChange={(event) => setSweepRStart(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Bis
+                  <span>
+                    <input
+                      type="number"
+                      min="0.05"
+                      max="10"
+                      step="0.1"
+                      value={sweepRStop}
+                      onChange={(event) => setSweepRStop(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+              </div>
+              <div className="field-group two">
+                <label>
+                  Schritt
+                  <span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="2"
+                      step="0.01"
+                      value={sweepRStep}
+                      onChange={(event) => setSweepRStep(event.target.value)}
+                    />
+                    mm
+                  </span>
+                </label>
+                <label>
+                  Zyklen je Wert
+                  <span>
+                    <input
+                      type="number"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={sweepCycles}
+                      onChange={(event) => setSweepCycles(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              <div className="arming-row">
+                <input
+                  type="text"
+                  value={sweepPhrase}
+                  onChange={(event) => setSweepPhrase(event.target.value)}
+                  placeholder="AUTOPA VALIDIEREN"
+                  aria-label="Bestätigung für den Rückzugs-Sweep"
+                />
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    sweepBusy ||
+                    !status.sweep.allowPrinterCommands ||
+                    sweepPhrase !== "AUTOPA VALIDIEREN" ||
+                    status.printer.printState !== "standby"
+                  }
+                  onClick={postSweepRun}
+                >
+                  Sweep an Drucker senden
+                </button>
+              </div>
+
+              {status.printer.printState !== "standby" && (
+                <p className="control-error">
+                  Gesperrt: Drucker ist „{status.printer.printState || "unbekannt"}
+                  “ — der Sweep läuft nur im Standby und wird während eines
+                  Drucks serverseitig abgelehnt.
+                </p>
+              )}
+
+              <p className="control-note">
+                Erzeugt den markierten G10/G11-Sweep im Speicher und sendet ihn
+                direkt an Moonraker — keine G-Code-Datei nötig. Der aktuelle
+                Wert ({formatNumber(status.printer.retractLength, 2)} mm) wird
+                am Ende wiederhergestellt. Nur im Standby: Düse ≥ 10 mm über
+                dem Bett, Auffangbehälter, Recorder vorher starten und am
+                Drucker bleiben.
+              </p>
+              {status.sweep.lastRun && (
+                <p className="control-message">
+                  Letzter Lauf: {status.sweep.lastRun.retractValues.join(", ")}{" "}
+                  mm à {status.sweep.lastRun.cycles} Zyklen · Restore{" "}
+                  {formatNumber(status.sweep.lastRun.restoreRetractMm, 2)} mm
+                </p>
+              )}
+              {sweepMessage && <p className="control-message">{sweepMessage}</p>}
+              {status.sweep.lastError && (
+                <p className="control-error">{status.sweep.lastError}</p>
+              )}
+            </article>
           </div>
 
           <div className="health-card">
@@ -1101,12 +1727,54 @@ export default function Home() {
                 <div>
                   <strong>Synchronisierte Aufnahme</strong>
                   <span>
-                    {status.capture.dataset ?? "noch kein aktiver Datensatz"}
+                    {status.capture.manager?.active
+                      ? status.capture.manager.attachedToPrint
+                        ? `${status.capture.dataset ?? "Datensatz"} · live bis Druckende`
+                        : `${status.capture.dataset ?? "Datensatz"} · Live-Vorschau`
+                      : status.capture.manager?.stopReason === "print_finished"
+                        ? `${status.capture.dataset ?? "Datensatz"} · am Druckende beendet`
+                        : status.capture.dataset ?? "noch kein aktiver Datensatz"}
                   </span>
                 </div>
                 <StateDot state={status.capture.state} />
               </div>
             </div>
+            <div className="control-actions">
+              {status.capture.manager?.active ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={captureBusy || !status.capture.manager.canStop}
+                  onClick={() => postCapture("stop")}
+                >
+                  Live-Daten ausschalten
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    captureBusy ||
+                    !status.printer.connected ||
+                    !status.capture.manager?.canStart
+                  }
+                  onClick={() => postCapture("start")}
+                >
+                  Live-Daten einschalten
+                </button>
+              )}
+            </div>
+            <p className="control-note">
+              Schaltet die passive ALPS-/Bewegungsaufnahme direkt ein oder aus.
+              Beginnt ein Druck, endet sie automatisch mit ihm. Kein PA-,
+              Rückzugs-, Pause- oder Abbruchbefehl wird gesendet.
+            </p>
+            {captureMessage && (
+              <p className="control-message">{captureMessage}</p>
+            )}
+            {status.capture.manager?.error && (
+              <p className="control-error">{status.capture.manager.error}</p>
+            )}
           </div>
         </section>
 
@@ -1287,6 +1955,114 @@ export default function Home() {
 
               <div className="divider" />
 
+              <div className="filter-settings">
+                <label className="filter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={selectedProfile.filterEnabled}
+                    onChange={(event) =>
+                      updateProfile("filterEnabled", event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Chamber-Filter für dieses Material</strong>
+                    <small>
+                      {status.chamberFilter.allowCommands
+                        ? "Automatische Lüfterbefehle freigegeben"
+                        : "Serverseitig gesperrt – Konfiguration ist sicher testbar"}
+                    </small>
+                  </span>
+                </label>
+
+                {selectedProfile.filterEnabled && (
+                  <>
+                    <div className="field-group two">
+                      <label>
+                        Kennung im Dateinamen
+                        <input
+                          type="text"
+                          value={selectedProfile.filterTag}
+                          onChange={(event) =>
+                            updateProfile("filterTag", event.target.value)
+                          }
+                          placeholder="[FILTER]"
+                        />
+                      </label>
+                      <label>
+                        Klipper-Lüfter
+                        <select
+                          value={selectedProfile.filterFan}
+                          onChange={(event) =>
+                            updateProfile("filterFan", event.target.value)
+                          }
+                        >
+                          {!status.chamberFilter.availableFans.length && (
+                            <option value={selectedProfile.filterFan}>
+                              {selectedProfile.filterFan ||
+                                "Kein fan_generic gefunden"}
+                            </option>
+                          )}
+                          {status.chamberFilter.availableFans.map((fan) => (
+                            <option value={fan} key={fan}>
+                              {fan}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="field-group two">
+                      <label>
+                        Filterleistung
+                        <span>
+                          <input
+                            type="number"
+                            min="10"
+                            max="100"
+                            step="5"
+                            value={selectedProfile.filterSpeedPercent}
+                            onChange={(event) =>
+                              updateProfile(
+                                "filterSpeedPercent",
+                                event.target.value,
+                              )
+                            }
+                          />
+                          %
+                        </span>
+                      </label>
+                      <label>
+                        Nachlauf
+                        <span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="120"
+                            step="5"
+                            value={selectedProfile.filterPostRunMinutes}
+                            onChange={(event) =>
+                              updateProfile(
+                                "filterPostRunMinutes",
+                                event.target.value,
+                              )
+                            }
+                          />
+                          min
+                        </span>
+                      </label>
+                    </div>
+                    <p className="filter-hint">
+                      Beispiel: Nur eine Datei mit{" "}
+                      <strong>{selectedProfile.filterTag || "[FILTER]"}</strong>{" "}
+                      im Namen aktiviert diese Regel. Bei Fehlern bleibt der
+                      Druck unbeeinflusst; ein bereits laufender Filter wird
+                      nicht vorschnell ausgeschaltet.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="divider" />
+
               <div className="field-group">
                 <label>
                   PA von
@@ -1337,16 +2113,19 @@ export default function Home() {
               </label>
 
               <div className="notice">
-                <strong>Nur Vorbereitung</strong>
+                <strong>Filterstatus: {status.chamberFilter.state}</strong>
                 <p>
                   Das Profil heizt den Drucker nicht und übernimmt keinen
-                  PA-Wert. Jeder Test bleibt beaufsichtigt.
+                  PA-Wert. Filterbefehle sind getrennt freigeschaltet und
+                  betreffen ausschließlich den gewählten `fan_generic`.
                 </p>
               </div>
 
               <div className="profile-actions">
                 <button className="primary-button" onClick={saveProfiles}>
-                  {saved ? "Profile gespeichert" : "Profile lokal speichern"}
+                  {saved
+                    ? "Profile gespeichert"
+                    : "Profile & Filterregeln speichern"}
                 </button>
                 <button
                   className="secondary-button"
@@ -1357,6 +2136,14 @@ export default function Home() {
                   Profil entfernen
                 </button>
               </div>
+              {profileMessage && (
+                <p className="control-message">{profileMessage}</p>
+              )}
+              {status.chamberFilter.lastError && (
+                <p className="control-error">
+                  {status.chamberFilter.lastError}
+                </p>
+              )}
             </div>
           )}
         </aside>

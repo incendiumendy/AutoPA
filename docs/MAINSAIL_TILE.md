@@ -2,9 +2,9 @@
 
 ## Deutsch
 
-AutoPA enthält eine native Mainsail-Kachel für die derzeit validierte
-Mainsail-Version `2.18.2`. Sie wird von Mainsail wie ein eingebautes Panel
-behandelt und kann deshalb unter **Einstellungen → Dashboard** für Mobil,
+AutoPA enthält zwei native Mainsail-Kacheln für die derzeit validierte
+Mainsail-Version `2.18.2`. Sie werden von Mainsail wie eingebaute Panels
+behandelt und können deshalb unter **Einstellungen → Dashboard** für Mobil,
 Tablet, Desktop und Widescreen:
 
 - zwischen den verfügbaren Spalten verschoben werden;
@@ -15,20 +15,86 @@ Die Kachel zeigt:
 
 - erreichbaren bzw. frischen AutoPA-Status;
 - Dry-Run-, Aus- oder bewaffneten Zustand;
-- relativen Düsendruck und aktuellen PA-Wert;
-- ausgeführten Layer und G-Code-Feature;
-- Klipper-Toolhead-Geschwindigkeit und Volumenstrom;
-- ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird.
-- optional den Zustand eines getrennt installierten LocalVision-Dienstes.
+- Temperatur, schwerkraftbereinigte Bewegung und relativen Düsendruck als
+  kompakte Hauptwerte;
+- aktuellen PA-Wert, Layer, Feature, Toolhead-Geschwindigkeit und Volumenstrom
+  in einer einzigen platzsparenden Kontextzeile;
+- ob das aktuelle PA-Messfenster freigegeben oder ignoriert wird sowie die
+  Messqualität;
+- ausschließlich AutoPA-Zustand und AutoPA-Bedienelemente.
 
-Die LocalVision-Zeile erscheint nur, wenn der echte JSON-Health-Endpunkt
-installiert ist. Grün bedeutet `ok`; rot bedeutet, dass die Route vorhanden,
-der Dienst aber nicht gesund oder nicht erreichbar ist. Ohne LocalVision wird
-keine zusätzliche Zeile angezeigt. Der Health-Check verändert weder AutoPA
-noch den Drucker.
+Local Vision besitzt eine eigene, unabhängig verschiebbare Kachel. Sie zeigt
+den Dienst- und Kalibrierungsstatus sowie den read-only geprüften Fahrplan.
+Ein Start erfordert den Bestätigungshaken in der Kachel und anschließend einen
+zweiten Dialog mit Bettgröße, sicherer Z-Höhe und allen fünf Messpunkten. Erst
+danach ruft sie die Local-Vision-Kalibrierung auf. Deren serverseitige Sperren
+bleiben maßgeblich: nur Leerlauf, live gelesene Achsgrenzen, normales `G28`
+ohne Heizen und Fortschrittsmeldungen in der Mainsail-Konsole.
 
-Sie kann AutoPA öffnen und ausschließlich zwischen `off` und `dry_run`
-umschalten. Sie kann **keinen bewaffneten Modus starten**, keine
+Die passive Live-Aufnahme kann direkt mit **Live ein** bzw. **Live aus**
+geschaltet werden. Sie sendet keinen G-Code und führt weder Pause noch Abbruch
+aus. Die Anzeige verwendet bewusst eine Ruhezone: relativer Düsendruck
+innerhalb `±10 %` wird als `≈ 0` dargestellt, Bewegungen unter `0,20 m/s²`
+werden visuell auf null gesetzt. Rohdaten und AutoPA-Auswertung bleiben davon
+unverändert. Die ausführliche AutoPA-Seite skaliert die Bewegungsanzeige anhand
+der letzten 60 Sekunden mit 50 % Reserve; die Druckanzeige nähert sich ihren
+Grenzen weich an. Dadurch ist für die reine Anzeige keine manuelle Eichung
+nötig.
+
+Die AutoPA-Kachel zeigt keinen Local-Vision-Zustand mehr. Dadurch sind beide
+Werkzeuge sichtbar getrennt und es gibt keine doppelte Local-Vision-Anzeige.
+
+Die Kachel enthält außerdem einen kompakten Kalibrierungs-Block für
+Firmware-Rückzug (mm) und Pressure Advance (K). Beide Sweeps werden direkt
+aus der Kachel an Moonraker gesendet, ohne G-Code-Datei. Sie erfordern eine
+ausdrückliche Bestätigung über eine Box mit Zusammenfassung des Laufs
+(„Ja, starten" / „Abbrechen"), den Druckerzustand `standby`, gehomte Achsen
+und das serverseitige Opt-in-Flag; während eines Drucks ist der Block
+sichtbar gesperrt und der Server lehnt zusätzlich ab. Der zum Laufbeginn
+aktive Rückzugs- bzw. PA-Wert wird am Ende automatisch wiederhergestellt.
+
+Über die Felder **Ziel-Z** (10–300 mm) und **Prime** (0–20 mm E, Standard
+10 mm) hebt der
+Sweep die Düse vor dem Start auf eine sichere Höhe — 50 mm halten den
+Filamenthaufen zuverlässig von der Spitze fern — und extrudiert kurz bei
+Temperatur, damit der erste Zyklus stabilen Druck misst. Die Prime läuft
+zweistufig: Die Hauptextrusion füllt die Schmelzkammer, nach einer kurzen
+Pause baut eine langsame Nachfüll-Extrusion (25 % der Prime, 1–4 mm)
+stabilen Düsendruck direkt vor dem ersten Messzyklus auf — das vermeidet
+Messfehler durch Ooze nach dem Aufheizen. Ein Auffangbehälter
+ist nicht zwingend nötig: Jede Stelle, an der der Strang frei abfallen kann,
+ohne die Düse wieder zu erreichen, ist geeignet (etwa eine Schale am
+Gestellprofil oder eine freie Fallzone neben dem Bett).
+
+Ein kompletter Sweep kann bis zu zwei Minuten dauern; die Kachel wartet auf
+die Bestätigung des Servers. Dauert sie zu lange (z. B. Gateway-Timeout),
+erscheint ein Hinweis statt eines roten Fehlers — der Lauf geht serverseitig
+weiter und der Status aktualisiert sich automatisch. Dafür sollte der
+Reverse-Proxy vor dem AutoPA-Dienst ein Lese-Timeout von mindestens 300 s
+haben (nginx: `proxy_read_timeout 300s;` in `location /autopa/`).
+
+Ist **Auto-Übernahme** aktiv (Standard), nimmt der Dienst den Sweep
+automatisch auf, wertet ihn aus und übernimmt die Empfehlung **nur zur
+Laufzeit**, wenn sie innerhalb der einstellbaren **Grenze** liegt
+(Rückzug ±1,5 mm, PA ±0,09; hart begrenzt auf ±3,0 mm bzw. ±0,2). Der
+übernommene Wert wird niemals gespeichert — kein `SAVE_CONFIG`, kein
+Klipper-Neustart — und kann bei Gefallen manuell in Mainsail gesichert
+werden. Liegt die Empfehlung außerhalb der Grenze oder ist die Auswertung
+uneindeutig, zeigt die Kachel den Grund an und der Drucker bleibt unverändert.
+
+Das Düsendruck-Fenster zeigt den geglätteten relativen Düsendruck als
+vertikalen Balken mit Nullpunkt in der Mitte (Druck nach oben, Zug nach
+unten) und dem Prozentwert daneben. Die Anzeige nutzt einen exponentiellen
+Mittelwert, damit Sensorrauschen im Leerlauf nicht ausschlägt; ohne
+Live-Daten zeigt das Fenster „—“. Rohdaten und Auswertung bleiben unverändert.
+
+Über ein kleines Dropdown im Kachelkopf lässt sich die Ansicht umschalten:
+`Auto` folgt dem Druckerzustand, `Druck` blendet den Sweep-Block aus,
+`Test` zeigt ihn prominent oben.
+
+Sie kann AutoPA öffnen, die passive Aufnahme schalten und ausschließlich
+zwischen `off` und `dry_run` umschalten. Sie kann **keinen bewaffneten Modus
+starten**, keine
 Druckerbefehle freischalten und im bewaffneten Modus auch nicht die
 Wiederherstellung umgehen. Das vollständige AutoPA-Sicherheitsmodell bleibt
 maßgeblich.
@@ -91,17 +157,71 @@ AutoPA-Build erzeugt, getestet und bewusst aktiviert werden.
 
 ## English
 
-AutoPA includes a native dashboard tile for the currently validated Mainsail
-version `2.18.2`. Mainsail treats it like a built-in panel, so it can be moved
+AutoPA includes two native dashboard tiles for the currently validated Mainsail
+version `2.18.2`. Mainsail treats them like built-in panels, so they can be moved
 between columns, shown or hidden per device class, and collapsed on the
 dashboard.
 
-The tile displays AutoPA freshness, mode, relative nozzle load, PA, executed
-layer and feature, Klipper toolhead speed, volumetric flow and PA evidence
-window state. If LocalVision is installed, it also shows a separate green or
-red LocalVision health row; installations without the JSON health endpoint do
-not show that row. The health check cannot affect AutoPA or the printer. The
-tile can open AutoPA and switch only between `off` and `dry_run`.
+The tile displays temperature, gravity-free motion and relative nozzle load as
+its compact primary values. PA, executed layer and feature, Klipper toolhead
+speed and volumetric flow share one context line. It also reports PA evidence
+window and measurement quality. A visual deadband reports relative pressure
+inside `±10%` and motion below `0.20 m/s²` as approximately zero without
+altering raw data or controller evidence. The detailed AutoPA page auto-ranges
+motion from the latest 60-second peak with 50% headroom and softly saturates
+the pressure marker. This avoids hard edge hits without requiring display
+calibration.
+
+Local Vision has its own independently movable tile with service and
+calibration status plus the read-only checked motion plan. Starting requires a
+checkbox and a second dialog listing bed size, safe Z and all five points. The
+server still enforces idle state, live axis limits, plain `G28` without heating
+and Mainsail-console progress messages. The AutoPA tile no longer contains any
+Local Vision row.
+
+The tile also contains a compact calibration block for firmware retraction (mm)
+and pressure advance (K). Both sweeps are sent straight to Moonraker without a
+G-code file. They require an explicit confirmation through a box summarizing
+the run ("Yes, start" / "Cancel"), the printer state `standby`, homed axes
+and the server-side opt-in flag; during a print the block is visibly locked
+and the server refuses as well. The retraction or PA value active at run
+start is restored automatically at the end.
+
+The **Target Z** (10–300 mm) and **Prime** (0–20 mm E, default 10 mm) fields
+lift the nozzle
+to a safe height before anything is extruded — 50 mm keeps the filament pile
+well away from the tip — and prime a few millimetres at temperature so the
+first cycle measures stable pressure. The prime runs in two stages: the main
+extrusion refills the melt chamber, and after a short pause a slow settle
+extrusion (25 % of the prime, 1–4 mm) rebuilds stable nozzle pressure right
+before the first measured cycle — this avoids measurement errors caused by
+ooze after heat-up. A purge container is not required: any
+spot where the strand falls away freely without reaching the nozzle again is
+fine, such as a tray clipped to the frame or a free drop zone beside the bed.
+
+A full sweep can take up to two minutes; the tile waits for the server
+acknowledgement. If it takes too long (e.g. a gateway timeout), the tile
+shows a note instead of a red error — the run continues server-side and the
+status refreshes automatically. For that to work, the reverse proxy in front
+of the AutoPA service should allow a read timeout of at least 300 s (nginx:
+`proxy_read_timeout 300s;` inside `location /autopa/`).
+
+With **Auto-apply** enabled (the default), the service automatically captures
+the sweep, analyzes it, and applies the recommendation **at runtime only**
+when it stays within the adjustable **limit** (retraction ±1.5 mm, PA ±0.09;
+hard-capped at ±3.0 mm and ±0.2). The applied value is never persisted — no
+`SAVE_CONFIG`, no Klipper restart — and can be saved manually in Mainsail
+once you are happy with it. If the recommendation exceeds the limit or the
+analysis is inconclusive, the tile shows the reason and the printer stays
+unchanged.
+
+The pressure cell shows the smoothed relative nozzle load as a vertical bar
+centered on zero (load up, tension down) with the percentage beside it. An
+exponential moving average keeps idle sensor noise from swinging the display;
+without live data the cell shows “—”. Raw data and analysis stay unchanged.
+
+A small dropdown in the tile header switches the view: `Auto` follows the
+printer state, `Print` hides the sweep block, `Test` brings it to the top.
 It cannot arm runtime command application or bypass AutoPA's safety gates.
 
 Mainsail has native sortable panels and macro groups but no stable external

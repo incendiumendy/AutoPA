@@ -18,6 +18,8 @@ published as a public control surface.
 - learned no-flow baseline, relative nozzle load in ALPS counts and normalized
   pressure;
 - dry-run PA and firmware-retraction recommendations with evidence counters;
+- optional material-profile chamber-filter rules with filename token,
+  validated `fan_generic`, speed and post-run;
 - a single overall `OK`, `waiting`, `warning` or `error` state.
 
 An idle sensor is shown as `waiting`, not as a hardware failure. An explicitly
@@ -58,6 +60,75 @@ Each chart footer has its own status point:
 - hotend temperature is live whenever Moonraker is connected.
 
 The word `Live` is therefore never shown for stale ALPS or acceleration data.
+
+### Pressure and motion visualization
+
+The primary pressure value is a signed, normalized sensor deviation rather than
+the large factory ADC count:
+
+- `0` is the learned force baseline;
+- `−` means tension / reduced nozzle load;
+- `+` means increased nozzle load.
+
+This is a relative signal percentage, not a calibrated percentage of physical
+force. Raw value, baseline and count delta remain available through the local
+status API and capture files for diagnostics and calibration. The dashboard
+shows this signal only once in the primary FLY-ALPS card.
+
+The display deliberately applies a visual deadband: pressure inside `±10%` is
+shown as approximately zero and per-axis motion below `0.20 m/s²` is centered.
+This prevents idle sensor noise from making the indicators jump. Recorded
+samples and adaptive-control evidence are not rounded or discarded.
+
+The pressure marker uses soft saturation, so normal peaks retain visible
+headroom instead of touching the end stops. The motion cross and Z bar derive
+their display range from the recent 60-second peak with 50% reserve. This is
+display auto-ranging, not a physical force calibration.
+
+Displayed pressure and motion values additionally use a short exponential
+smoothing window and animated transitions between one-second status updates.
+This affects only the dashboard presentation; capture files and adaptive
+controller input retain the original unsmoothed samples.
+
+The accelerometer card uses a physical X/Y cross and a separate Z bar. For each
+Klipper accelerometer batch, AutoPA removes the per-axis mean (including the
+static gravity component), then reports the signed strongest X/Y deviation,
+the signed strongest Z deviation and per-axis RMS motion. Values are displayed
+in `m/s²`; capture files keep the original `mm/s²` samples unchanged.
+Klipper's configured `axes_map` remains authoritative, so the visualization
+also works with optional ADXL345 and other supported sensors.
+
+## Clickable live data and print-bound recorder manager
+
+The dashboard's `Live-Daten einschalten` button can start a passive synchronized
+recording while the printer is idle or while Klipper already reports
+`printing`. The managed recording:
+
+- immediately supplies fresh FLY-ALPS and optional accelerometer values;
+- attaches to the current print without restarting Klipper or Moonraker;
+- automatically attaches when a new print begins during a live preview;
+- records FLY-ALPS, the selected optional accelerometer, Klipper motion,
+  temperature, Pressure Advance and G-code context;
+- continues when the browser is closed;
+- stops cleanly when `print_stats.state` reaches `complete`, `cancelled`,
+  `error` or `standby`;
+- can be switched off manually from the dashboard at any time;
+- has a twelve-hour hard duration limit.
+
+Starting or stopping a recording sends no G-code and never pauses or cancels
+the print. A temporary Moonraker-monitor failure leaves the recording running;
+the duration limit remains the final bound. Recorder failures stop only the
+measurement.
+
+The generated systemd unit grants write access only to
+`~/printer_data/autopa`. `ProtectHome=read-only` and the remaining service
+hardening stay active.
+
+Older installed units that only expose their systemd `StateDirectory` are
+supported as well: when `AUTOPA_CONTROL_STATE` points into that directory and
+no separate live/output/filter path is configured, AutoPA keeps all writable
+runtime data beside that control state. This permits an update without
+weakening the existing service sandbox.
 
 ## Native movable Mainsail tile
 
@@ -147,8 +218,15 @@ controller. The shipped service has
 `AUTOPA_ALLOW_PRINTER_COMMANDS=0`, so arming is rejected server-side even if a
 browser calls the endpoint directly.
 
-For the first printer validation, keep that value at `0`. The pressure gauge
-and proposed PA/retraction values are still visible during an active capture.
+Chamber-filter commands use an independent
+`AUTOPA_ALLOW_FILTER_COMMANDS=0` lock. Saving a material profile does not
+implicitly unlock it. Only validated `SET_FAN_SPEED` calls for a real
+`fan_generic` can pass that separate path. See
+[filename-triggered chamber filter](CHAMBER_FILTER.md).
+
+For the first printer validation, keep that value at `0`. The primary FLY-ALPS
+pressure card and proposed PA/retraction values remain visible during an active
+capture.
 Only after the dry-run evidence has been reviewed may an operator deliberately
 set it to `1`, restart only the AutoPA dashboard service and enter the exact
 phrase `AUTOPA VALIDIEREN`. See
