@@ -1,4 +1,5 @@
 import json
+import socket
 import tempfile
 import threading
 import unittest
@@ -362,6 +363,57 @@ class DashboardStatusTests(unittest.TestCase):
                     self.assertEqual(
                         1, json.load(response)["configuredProfiles"])
                 self.assertEqual("abs", data.profiles[0]["id"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+
+    def test_sweep_endpoints_send_exactly_one_response(self):
+        # A missing return let /api/sweep append the static index.html
+        # after its JSON body. The tile reads only Content-Length bytes and
+        # then closes, so the trailing write produced a BrokenPipeError
+        # traceback on every poll.
+        class Data:
+            def status(self):
+                return {}
+
+            def sweep_status(self):
+                return {"printerAction": "none"}
+
+            def pa_sweep_status(self):
+                return {"printerAction": "none"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "index.html").write_text(
+                "<!doctype html><title>AutoPA</title>", encoding="utf-8")
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0), make_handler(Data(), directory))
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for path in ("/api/sweep", "/api/pa-sweep"):
+                    connection = socket.create_connection(
+                        ("127.0.0.1", server.server_port), timeout=5)
+                    try:
+                        connection.sendall(
+                            ("GET %s HTTP/1.0\r\n\r\n" % path).encode("ascii"))
+                        raw = b""
+                        while True:
+                            chunk = connection.recv(4096)
+                            if not chunk:
+                                break
+                            raw += chunk
+                    finally:
+                        connection.close()
+                    self.assertEqual(
+                        1, raw.count(b"HTTP/1.0 200 OK"),
+                        "%s must send exactly one response" % path)
+                    self.assertNotIn(b"<!doctype html>", raw)
+                    head, _, body = raw.partition(b"\r\n\r\n")
+                    self.assertIn(b"application/json", head)
+                    self.assertEqual(
+                        "none", json.loads(body)["printerAction"])
             finally:
                 server.shutdown()
                 server.server_close()

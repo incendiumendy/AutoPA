@@ -517,6 +517,16 @@ def make_handler(data, static_dir):
     class DashboardHandler(BaseHTTPRequestHandler):
         server_version = "AutoPADashboard/0.1"
 
+        def handle_one_request(self):
+            # The tile and dashboard poll continuously; a browser that
+            # navigates away or a client that stops reading mid-response is
+            # normal traffic and must not print a traceback into the
+            # service log.
+            try:
+                BaseHTTPRequestHandler.handle_one_request(self)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+
         def _send_json(self, payload, status=200):
             body = json.dumps(
                 payload, separators=(",", ":")).encode("utf-8")
@@ -554,6 +564,7 @@ def make_handler(data, static_dir):
                 return
             if request_path == "/api/sweep":
                 self._send_json(data.sweep_status())
+                return
             if request_path == "/api/pa-sweep":
                 self._send_json(data.pa_sweep_status())
                 return
