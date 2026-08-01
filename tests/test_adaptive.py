@@ -3,6 +3,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
@@ -243,6 +244,75 @@ class AdaptiveControllerTests(unittest.TestCase):
             controller.disarm()
             self.assertEqual(
                 "SET_RETRACTION RETRACT_LENGTH=0.800", sent[1])
+
+    def _armed_pa_controller(self, directory, sent):
+        controller = AdaptiveController(
+            "unused", str(pathlib.Path(directory, "control.json")),
+            allow_printer_commands=True, send_gcode=sent.append)
+        controller.update_config({
+            "mode": "dry_run",
+            "adaptive_pa_enabled": True,
+        })
+        controller.arm(ARM_PHRASE)
+        return controller
+
+    def _apply_pa(self, controller):
+        controller._maybe_apply({
+            "print_state": "printing",
+            "pressure_advance": 0.03,
+        }, {
+            "reason": "ok",
+            "suggested_pa": 0.20,
+            "pa_context_eligible": True,
+        })
+
+    def test_first_command_is_not_rate_limited_by_machine_uptime(self):
+        # time.monotonic() is seconds since boot on Linux. The "never sent
+        # a command yet" state must be a real sentinel, not 0.0, or the
+        # rate limiter reads boot time as a recent command and swallows the
+        # first genuine one on a machine that started moments ago.
+        for uptime_s in (0.0, 1.5, 29.9):
+            sent = []
+            with unittest.mock.patch.object(
+                    time, "monotonic", lambda: uptime_s):
+                with tempfile.TemporaryDirectory() as directory:
+                    self._apply_pa(
+                        self._armed_pa_controller(directory, sent))
+            self.assertEqual(
+                ["SET_PRESSURE_ADVANCE ADVANCE=0.040000"], sent,
+                "a machine up %.1f s must still send the first command"
+                % uptime_s)
+
+    def test_rate_limit_still_suppresses_a_rapid_second_command(self):
+        sent = []
+        clock = {"now": 10.0}
+        with unittest.mock.patch.object(
+                time, "monotonic", lambda: clock["now"]):
+            with tempfile.TemporaryDirectory() as directory:
+                controller = self._armed_pa_controller(directory, sent)
+                self._apply_pa(controller)
+                self.assertEqual(1, len(sent))
+
+                # Inside min_update_interval_s (30 s): still suppressed.
+                clock["now"] += 29.0
+                self._apply_pa(controller)
+                self.assertEqual(
+                    1, len(sent), "second command came too soon")
+
+                # Past the interval the controller may act again. The value
+                # is unchanged, so it settles on the same bounded target.
+                clock["now"] += 2.0
+                controller.initial_pa = None
+                controller._maybe_apply({
+                    "print_state": "printing",
+                    "pressure_advance": 0.04,
+                }, {
+                    "reason": "ok",
+                    "suggested_pa": 0.20,
+                    "pa_context_eligible": True,
+                })
+                self.assertEqual(
+                    2, len(sent), "interval elapsed, command was expected")
 
     def test_invalid_sensor_evidence_never_sends_a_command(self):
         sent = []
