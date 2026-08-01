@@ -84,6 +84,18 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Dashboard: „Rückzugs-Sweep" und „Adaptive PA & Auto-Retract" liegen jetzt
+  in einer Karte, getrennt in Phase 1 (nur im laufenden Druck) und Phase 2
+  (nur im Standby). Beide regeln dieselbe Größe in entgegengesetzten
+  Druckerzuständen und konnten nie gleichzeitig aktiv sein; als zwei
+  gleich aussehende Karten nebeneinander war das nicht erkennbar.
+
+- Dashboard: die getippte Bestätigungsphrase „AUTOPA VALIDIEREN" ist durch
+  einen Bestätigungsdialog ersetzt, der die konkreten Werte nennt — wie in
+  der Mainsail-Kachel bereits üblich. Der serverseitige Phrasen-Gate in
+  `/api/control/arm` und `/api/sweep/run` bleibt unverändert; die Phrase
+  wird weiterhin gesendet, nur nicht mehr abgetippt.
+
 - Mainsail-Farbbrücke im Dashboard: `dashboard/public/theme.js` liest die
   aktive Primärfarbe aus der Moonraker-Datenbank
   (`mainsail` / `uiSettings.primary`) und setzt `--primary`,
@@ -202,6 +214,18 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- dashboard: "Rückzugs-Sweep" and "Adaptive PA & Auto-Retract" now share one
+  card, split into phase 1 (only while printing) and phase 2 (only in
+  standby). Both tune the same quantity in opposite printer states and could
+  never be active at the same time, which was impossible to tell from two
+  identical-looking cards side by side.
+
+- dashboard: the typed confirmation phrase "AUTOPA VALIDIEREN" is replaced by
+  a confirmation dialog naming the concrete values, matching what the Mainsail
+  tile already did. The server-side phrase gate on `/api/control/arm` and
+  `/api/sweep/run` is unchanged; the phrase is still sent, just no longer
+  retyped.
 
 - Mainsail colour bridge in the dashboard: `dashboard/public/theme.js`
   reads the active primary colour from the Moonraker database
