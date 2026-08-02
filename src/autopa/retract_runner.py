@@ -15,7 +15,8 @@ import urllib.request
 import json
 
 from .adaptive import ARM_PHRASE
-from .apply_policy import apply_decision, validated_apply_bound
+from .apply_policy import (
+    apply_decision, summarize_analysis, validated_apply_bound)
 from .retract_sweep import (
     MAX_RETRACT_MM, MAX_RETRACT_SPEED_MM_S, MIN_RETRACT_SPEED_MM_S,
     build_retract_sweep)
@@ -117,6 +118,8 @@ class RetractSweepRunner:
         self.last_run = None
         self.last_error = None
         self.last_apply = None
+        self.last_analysis = None
+        self.last_analysis_by_mode = {"length": None, "speed": None}
         # Stage 2 and stage 3 share this runner, so one slot meant the later
         # stage erased the earlier one's result and its card went blank.
         self.last_apply_by_mode = {"length": None, "speed": None}
@@ -193,6 +196,8 @@ class RetractSweepRunner:
             "lastRun": self.last_run,
             "lastError": self.last_error,
             "lastApply": self.last_apply,
+            "lastAnalysis": self.last_analysis,
+            "lastAnalysisByMode": self.last_analysis_by_mode,
             "lastApplyByMode": self.last_apply_by_mode,
             "lastRunByMode": self.last_run_by_mode,
             "lastSave": self.last_save,
@@ -279,6 +284,7 @@ class RetractSweepRunner:
         self.last_run_by_mode[self.active_mode] = self.last_run
         # A fresh run invalidates whatever this stage reported before.
         self.last_apply_by_mode[self.active_mode] = None
+        self.last_analysis_by_mode[self.active_mode] = None
         return self.status()
 
     def _record(self, entry):
@@ -379,6 +385,14 @@ class RetractSweepRunner:
             "printerAction": "none",
         })
         return self.status()
+
+    def record_analysis(self, result):
+        """Keep the per-candidate cost curve so the card can plot it."""
+        self.last_analysis = summarize_analysis(result)
+        # Stage 2 and stage 3 share this runner, so the curve is filed under
+        # the stage that measured it.
+        self.last_analysis_by_mode[self.active_mode] = self.last_analysis
+        return self.last_analysis
 
     def record_apply_skip(self, reason, source=None):
         self._record({

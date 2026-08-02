@@ -461,6 +461,9 @@ class DashboardData:
                 # closed.
                 pass
             result = analyzer(dataset_dir) or {}
+            # Keep the whole cost curve, not just the winner: a single number
+            # hides a noisy curve and a winner sitting at the range edge.
+            runner.record_analysis(result)
             recommendation = result.get("recommendation")
             if not recommendation:
                 runner.record_apply_skip("no_recommendation", source=source)

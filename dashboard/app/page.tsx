@@ -158,10 +158,15 @@ type SweepApply = {
   appliedMm?: number | null;
   appliedValue?: number | null;
   previousValue?: number | null;
+  previous?: number | null;
   recommendedMm?: number | null;
+  recommended?: number | null;
   currentMm?: number | null;
+  current?: number | null;
   deviationMm?: number | null;
+  deviation?: number | null;
   boundMm?: number | null;
+  bound?: number | null;
   recommendedSpeedMmS?: number | null;
   sweptVariable?: string | null;
   source?: string | null;
@@ -492,7 +497,10 @@ function describeStageResult(
     };
   }
   if (apply.applied) {
-    const from = apply.previousMm ?? apply.previousValue;
+    // The two runners disagree on key names: the retract runner writes
+    // previousMm/appliedMm, the PA runner previous/appliedValue. Reading only
+    // one set rendered the other stage's before-value as "?".
+    const from = apply.previousMm ?? apply.previousValue ?? apply.previous;
     const to = apply.appliedMm ?? apply.appliedValue;
     return {
       tone: "ok",
@@ -502,11 +510,181 @@ function describeStageResult(
   const reason =
     APPLY_SKIP_REASONS[apply.reason ?? ""] ??
     `Nicht übernommen (${apply.reason ?? "unbekannt"}).`;
+  const recommended = apply.recommendedMm ?? apply.recommended;
+  const current = apply.currentMm ?? apply.current;
+  const bound = apply.boundMm ?? apply.bound;
   const detail =
-    apply.recommendedMm !== null && apply.recommendedMm !== undefined
-      ? ` Empfohlen war ${apply.recommendedMm} ${unit} bei aktuell ${apply.currentMm ?? "?"} ${unit} (Grenze ±${apply.boundMm ?? "?"}).`
+    recommended !== null && recommended !== undefined
+      ? ` Empfohlen war ${recommended} ${unit} bei aktuell ${current ?? "?"} ${unit} (Grenze ±${bound ?? "?"}).`
       : "";
   return { tone: "warn", text: reason + detail };
+}
+
+type AnalysisPoint = {
+  value: number;
+  cost: number | null;
+  cyclesIncluded: number | null;
+  cyclesTotal: number | null;
+};
+
+type StageAnalysis = {
+  sweptVariable: string;
+  points: AnalysisPoint[];
+  best: number | null;
+  bestAtRangeEdge: boolean;
+  qualityGatePassed: boolean;
+};
+
+// The cost curve behind the recommendation. A bare number reads as
+// authoritative even when the curve is noisy or its winner sits at the edge
+// of the swept range, where the real optimum may lie outside what was
+// measured at all.
+function StageChart({
+  analysis,
+  unit,
+}: {
+  analysis: StageAnalysis | null | undefined;
+  unit: string;
+}) {
+  if (!analysis || analysis.points.length < 2) return null;
+  const points = analysis.points;
+  const costs = points
+    .map((p) => p.cost)
+    .filter((c): c is number => c !== null);
+  if (costs.length < 2) return null;
+
+  const width = 100;
+  const height = 34;
+  const max = Math.max(...costs);
+  const min = Math.min(...costs);
+  const span = max - min || 1;
+  const step = width / points.length;
+  // Lower cost is better, so the best value is drawn tallest.
+  const barHeight = (cost: number) =>
+    Math.max(2, ((max - cost) / span) * (height - 6) + 3);
+
+  return (
+    <div className="stage-chart">
+      <div className="stage-chart-head">
+        <span>Messkurve — niedriger ist besser</span>
+        {analysis.bestAtRangeEdge && (
+          <span className="stage-chart-edge">Bester Wert am Rand</span>
+        )}
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
+           role="img" aria-label="Kosten je gemessenem Wert">
+        {points.map((point, index) => {
+          const cost = point.cost;
+          const isBest = point.value === analysis.best;
+          if (cost === null) {
+            return (
+              <rect
+                key={point.value}
+                x={index * step + step * 0.15}
+                y={height - 3}
+                width={step * 0.7}
+                height={3}
+                className="bar-empty"
+              />
+            );
+          }
+          const barH = barHeight(cost);
+          return (
+            <rect
+              key={point.value}
+              x={index * step + step * 0.15}
+              y={height - barH}
+              width={step * 0.7}
+              height={barH}
+              className={isBest ? "bar-best" : "bar"}
+            />
+          );
+        })}
+      </svg>
+      <div className="stage-chart-axis">
+        {points.map((point) => (
+          <span
+            key={point.value}
+            className={point.value === analysis.best ? "is-best" : undefined}
+          >
+            {point.value}
+          </span>
+        ))}
+      </div>
+      <p className="stage-chart-note">
+        {points.filter((p) => p.cost === null).length > 0 && (
+          <>
+            Werte ohne Balken lieferten zu wenig verwertbare Zyklen.{" "}
+          </>
+        )}
+        {analysis.bestAtRangeEdge ? (
+          <>
+            Der beste Wert ({analysis.best} {unit}) liegt am Rand des
+            gemessenen Bereichs — das Optimum kann außerhalb liegen. Erweitere
+            den Bereich in diese Richtung und miss erneut.
+          </>
+        ) : (
+          <>
+            Der beste Wert ({analysis.best} {unit}) liegt innerhalb des
+            gemessenen Bereichs.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function StageAction({
+  applied,
+  busy,
+  disabled,
+  startLabel,
+  onStart,
+  onSave,
+  saveBusy,
+}: {
+  applied: boolean;
+  busy: boolean;
+  disabled: boolean;
+  startLabel: string;
+  onStart: () => void;
+  onSave: () => void;
+  saveBusy: boolean;
+}) {
+  if (applied) {
+    return (
+      <div className="arming-row">
+        <button
+          type="button"
+          className="danger-button is-emphasised"
+          disabled={saveBusy || disabled}
+          onClick={onSave}
+        >
+          SAVE_CONFIG — Wert dauerhaft speichern
+        </button>
+        <button
+          type="button"
+          className="secondary-button is-compact"
+          disabled={busy || disabled}
+          onClick={onStart}
+        >
+          Nochmal messen
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="arming-row">
+      <button
+        type="button"
+        className="primary-button"
+        disabled={busy || disabled}
+        onClick={onStart}
+      >
+        {startLabel}
+      </button>
+    </div>
+  );
 }
 
 function StageResult({
@@ -1469,7 +1647,7 @@ export default function Home() {
 
   const saveConfirmSummary = useMemo(
     () =>
-      `SAVE_CONFIG schreibt die aktuell aktiven Werte in die printer.cfg: Pressure Advance ${formatNumber(status.printer.pressureAdvance, 3)}, Rückzug ${formatNumber(status.printer.retractLength, 2)} mm bei ${formatNumber(status.printer.retractSpeed, 0)} mm/s. Klipper schreibt die Datei um und startet danach neu. Das lässt sich nur rückgängig machen, indem du die Datei selbst wieder änderst. Wirklich speichern?`,
+      `SAVE_CONFIG schreibt ALLE aktuell aktiven Werte in die printer.cfg — nicht nur den dieser Stufe: Pressure Advance ${formatNumber(status.printer.pressureAdvance, 3)}, Rückzug ${formatNumber(status.printer.retractLength, 2)} mm bei ${formatNumber(status.printer.retractSpeed, 0)} mm/s. Klipper schreibt die Datei um und startet danach neu. Rückgängig geht das nur, indem du die Datei selbst wieder änderst. Wirklich speichern?`,
     [
       status.printer.pressureAdvance,
       status.printer.retractLength,
@@ -1894,21 +2072,19 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="arming-row">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={
-                      paBusy ||
-                      analysisBusy ||
-                      !status.paSweep.allowPrinterCommands ||
-                      status.printer.printState !== "standby"
-                    }
-                    onClick={() => setPaConfirming(true)}
-                  >
-                    Stufe 1 starten …
-                  </button>
-                </div>
+                <StageAction
+                  applied={Boolean(status.paSweep.lastApply?.applied)}
+                  busy={paBusy}
+                  disabled={
+                    analysisBusy ||
+                    !status.paSweep.allowPrinterCommands ||
+                    status.printer.printState !== "standby"
+                  }
+                  startLabel="Stufe 1 starten …"
+                  onStart={() => setPaConfirming(true)}
+                  onSave={() => setSaveConfirming(true)}
+                  saveBusy={saveBusy}
+                />
               )}
               {status.paSweep.lastRun && (
                 <p className="control-message">
@@ -1916,6 +2092,10 @@ export default function Home() {
                   K-Werte à {status.paSweep.lastRun.cycles} Zyklen
                 </p>
               )}
+              <StageChart
+                analysis={status.paSweep.lastAnalysis}
+                unit="K"
+              />
               <StageResult
                 apply={status.paSweep.lastApply}
                 unit="K"
@@ -2025,21 +2205,19 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="arming-row">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={
-                      sweepBusy ||
-                      analysisBusy ||
-                      !status.sweep.allowPrinterCommands ||
-                      status.printer.printState !== "standby"
-                    }
-                    onClick={() => setSweepConfirming(true)}
-                  >
-                    Stufe 2 starten …
-                  </button>
-                </div>
+                <StageAction
+                  applied={Boolean(status.sweep.lastApplyByMode?.length?.applied)}
+                  busy={sweepBusy}
+                  disabled={
+                    analysisBusy ||
+                    !status.sweep.allowPrinterCommands ||
+                    status.printer.printState !== "standby"
+                  }
+                  startLabel="Stufe 2 starten …"
+                  onStart={() => setSweepConfirming(true)}
+                  onSave={() => setSaveConfirming(true)}
+                  saveBusy={saveBusy}
+                />
               )}
 
               {status.printer.printState !== "standby" && (
@@ -2072,6 +2250,10 @@ export default function Home() {
                   {status.sweep.lastRun.cycles} Zyklen
                 </p>
               )}
+              <StageChart
+                analysis={status.sweep.lastAnalysisByMode?.length}
+                unit="mm"
+              />
               <StageResult
                 apply={status.sweep.lastApplyByMode?.length ?? null}
                 unit="mm"
@@ -2191,25 +2373,27 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="arming-row">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={
-                      sweepBusy ||
-                      analysisBusy ||
-                      !status.sweep.allowPrinterCommands ||
-                      status.printer.printState !== "standby"
-                    }
-                    onClick={() => setSpeedConfirming(true)}
-                  >
-                    Stufe 3 starten …
-                  </button>
-                </div>
+                <StageAction
+                  applied={Boolean(status.sweep.lastApplyByMode?.speed?.applied)}
+                  busy={sweepBusy}
+                  disabled={
+                    analysisBusy ||
+                    !status.sweep.allowPrinterCommands ||
+                    status.printer.printState !== "standby"
+                  }
+                  startLabel="Stufe 3 starten …"
+                  onStart={() => setSpeedConfirming(true)}
+                  onSave={() => setSaveConfirming(true)}
+                  saveBusy={saveBusy}
+                />
               )}
+              <StageChart
+                analysis={status.sweep.lastAnalysisByMode?.speed}
+                unit="mm/s"
+              />
               <StageResult
                 apply={status.sweep.lastApplyByMode?.speed ?? null}
-                unit="mm"
+                unit="mm/s"
                 analyzing={
                   status.sweep.analysis?.busy &&
                   status.sweep.analysis?.stage === "retract" &&
@@ -2405,13 +2589,15 @@ export default function Home() {
               )}
 
               <div className="phase-divider">
-                <span>Dauerhaft speichern · optional</span>
+                <span>Zum Speichern · Hinweis</span>
               </div>
 
               <p className="control-note">
-                Alle Übernahmen oben gelten nur zur Laufzeit. Nach einem
-                Klipper-Neustart stehen wieder die Werte aus deiner
-                Konfigurationsdatei. Aktuell aktiv: PA{" "}
+                Sobald eine Stufe einen Wert übernommen hat, bietet sie an
+                ihrer Stelle <strong>SAVE_CONFIG</strong> an. Achtung: Klipper
+                schreibt dabei immer <strong>alle</strong> aktiven Werte in die
+                Konfiguration, nicht nur den dieser Stufe. Ohne Speichern gilt
+                jede Übernahme nur zur Laufzeit. Aktuell aktiv: PA{" "}
                 {formatNumber(status.printer.pressureAdvance, 3)}, Rückzug{" "}
                 {formatNumber(status.printer.retractLength, 2)} mm bei{" "}
                 {formatNumber(status.printer.retractSpeed, 0)} mm/s.
@@ -2425,7 +2611,7 @@ export default function Home() {
                 sind, die du behalten willst.
               </p>
 
-              {saveConfirming ? (
+              {saveConfirming && (
                 <div className="confirm-box">
                   <p>{saveConfirmSummary}</p>
                   <div className="confirm-actions">
@@ -2445,21 +2631,6 @@ export default function Home() {
                       Abbrechen
                     </button>
                   </div>
-                </div>
-              ) : (
-                <div className="arming-row">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={
-                      saveBusy ||
-                      !status.sweep.allowPrinterCommands ||
-                      status.printer.printState !== "standby"
-                    }
-                    onClick={() => setSaveConfirming(true)}
-                  >
-                    SAVE_CONFIG …
-                  </button>
                 </div>
               )}
               {saveMessage && <p className="control-message">{saveMessage}</p>}

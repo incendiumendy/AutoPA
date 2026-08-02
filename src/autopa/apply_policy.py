@@ -71,3 +71,46 @@ def apply_decision(recommended, current, bound):
         "deviation": deviation,
         "bound": float(bound),
     }
+
+
+def summarize_analysis(result):
+    """Compact per-candidate curve for the dashboard chart.
+
+    A single recommended number reads as authoritative even when the cost
+    curve behind it is noisy or its winner sits at the edge of the swept
+    range, where the real optimum may lie outside what was measured. The
+    chart needs the whole curve to show that.
+    """
+    if not isinstance(result, dict):
+        return None
+    entries = result.get("per_value") or result.get("per_k") or []
+    points = []
+    for entry in entries:
+        value = entry.get("swept_value")
+        if value is None:
+            value = entry.get("k")
+        if value is None:
+            value = entry.get("retract_length_mm")
+        if value is None:
+            continue
+        points.append({
+            "value": value,
+            "cost": entry.get("cost"),
+            "cyclesIncluded": entry.get("cycles_included"),
+            "cyclesTotal": entry.get("cycles_total"),
+        })
+    if not points:
+        return None
+    ranked = [p for p in points if p["cost"] is not None]
+    best = min(ranked, key=lambda p: p["cost"])["value"] if ranked else None
+    edges = {points[0]["value"], points[-1]["value"]}
+    return {
+        "sweptVariable": result.get("swept_variable") or (
+            "pressure_advance" if result.get("per_k") else "retract_length"),
+        "points": points,
+        "best": best,
+        # A winner at either end usually means the optimum is outside the
+        # tested window, so the range should be widened and re-run.
+        "bestAtRangeEdge": best is not None and best in edges,
+        "qualityGatePassed": bool(result.get("quality_gate_passed")),
+    }

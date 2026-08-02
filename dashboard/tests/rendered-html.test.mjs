@@ -219,8 +219,20 @@ test("save-config is opt-in, standby only and states the consequence", async () 
   assert.match(page, /printer\.cfg/);
   // Destructive styling and the standby gate, like every printer action.
   assert.match(page, /className="danger-button"[\s\S]{0,200}Ja, speichern/);
-  const saveBlock = page.slice(page.indexOf("SAVE_CONFIG …") - 900);
-  assert.match(saveBlock, /printState !== "standby"/);
+  // The save action replaces a stage's start button once that stage applied
+  // a value; two buttons side by side only confused. Its gate lives in
+  // StageAction, which every stage passes the same standby check to.
+  assert.match(page, /danger-button is-emphasised/);
+  const action = page.slice(page.indexOf("function StageAction"));
+  assert.match(action.slice(0, 1400), /SAVE_CONFIG — Wert dauerhaft speichern/);
+  assert.match(action.slice(0, 1400), /Nochmal messen/);
+  const stageUse = page.slice(page.indexOf("<StageAction"));
+  assert.match(stageUse.slice(0, 700), /printState !== "standby"/);
+
+  // SAVE_CONFIG writes every active value, not just this stage's. A button
+  // that implies otherwise would be lying about what it does.
+  assert.match(page, /nicht nur den dieser Stufe/);
+  assert.match(page, /ALLE aktuell aktiven Werte/);
 });
 
 test("the speed stage is honest about what the sensor cannot see", async () => {
@@ -282,4 +294,32 @@ test("renders opt-in bounded control without direct printer commands", async () 
   assert.match(page, /mainsailUrl\.port === "7126"/);
   assert.doesNotMatch(page, /M104|M109|SET_PRESSURE_ADVANCE|PAUSE|CANCEL_PRINT/);
   assert.doesNotMatch(route, /M104|M109|SET_PRESSURE_ADVANCE|PAUSE|CANCEL_PRINT/);
+});
+
+test("plots the cost curve behind every recommendation", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // A single recommended number reads as authoritative even when the curve
+  // behind it is noisy or its winner sits at the edge of the swept range -
+  // which is exactly what happened twice on the printer, at K 0.09 and at
+  // 20 mm/s.
+  const charts = page.match(/<StageChart/g) ?? [];
+  assert.equal(charts.length, 3, "every stage plots its curve");
+  assert.match(page, /analysis=\{status\.paSweep\.lastAnalysis\}/);
+  assert.match(page, /lastAnalysisByMode\?\.length/);
+  assert.match(page, /lastAnalysisByMode\?\.speed/);
+
+  assert.match(page, /Bester Wert am Rand/);
+  assert.match(page, /Optimum kann außerhalb liegen/);
+  // Candidates that produced no usable cycles must stay visible as gaps.
+  assert.match(page, /zu wenig verwertbare Zyklen/);
+  assert.match(css, /\.stage-chart \{/);
+  assert.match(css, /\.stage-chart \.bar-best \{/);
 });
