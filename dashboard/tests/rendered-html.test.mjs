@@ -205,7 +205,7 @@ test("primes every stage and warns while a capture is running", async () => {
   assert.match(page, /Stufen sind so lange\s+gesperrt/);
 });
 
-test("save-config is opt-in, standby only and states the consequence", async () => {
+test("offers config lines because Klipper cannot persist these values", async () => {
   const page = await readFile(
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
@@ -215,44 +215,24 @@ test("save-config is opt-in, standby only and states the consequence", async () 
     "utf8",
   );
 
-  // AutoPA is runtime-only everywhere else; this is the one deliberate
-  // exception, so the prompt must name the restart and the values.
-  assert.match(page, /api\/save-config/);
-  assert.match(page, /saveConfirmSummary/);
-  assert.match(page, /startet Klipper neu/);
-  assert.match(page, /printer\.cfg/);
-  // Destructive styling and the standby gate, like every printer action.
-  assert.match(page, /className="danger-button"[\s\S]{0,200}Ja, speichern/);
-  // The save action replaces a stage's start button once that stage applied
-  // a value; two buttons side by side only confused. Its gate lives in
-  // StageAction, which every stage passes the same standby check to.
-  assert.match(page, /danger-button is-emphasised/);
-  const action = page.slice(
-    page.indexOf("function StageAction"),
-    page.indexOf("function StageResult"),
-  );
-  assert.match(action, /SAVE_CONFIG — Wert dauerhaft speichern/);
-  assert.match(action, /Nochmal messen/);
-  // Exactly one control is visible at a time: running, analysing, applied or
-  // idle. The start button used to stay on screen through all of them.
-  assert.match(action, /if \(running\?\.active\)/);
-  assert.match(action, /if \(analyzing\)/);
-  assert.match(action, /if \(applied\)/);
-  // A stage blocked by another stage's work must not keep offering its
-  // start button: there was no :disabled styling for the primary button, so
-  // a blocked stage looked exactly like a ready one.
-  assert.match(action, /if \(blockedReason\)/);
-  assert.match(page, /blockedReason=\{stageBlockedReason\}/);
-  assert.match(page, /Eine andere Stufe wird gerade ausgewertet/);
-  assert.match(page, /Ein Sweep läuft gerade/);
-  assert.match(css, /\.primary-button:disabled/);
-  const stageUse = page.slice(page.indexOf("<StageAction"));
-  assert.match(stageUse.slice(0, 700), /printState !== "standby"/);
+  // Only modules calling configfile.set() reach Klipper's autosave block -
+  // PID, bed mesh, probe offsets, input shaper. Neither extruder.py nor
+  // firmware_retraction.py does, so SAVE_CONFIG would restart Klipper,
+  // discard the runtime value and write nothing about it.
+  assert.doesNotMatch(page, /api\/save-config/);
+  assert.doesNotMatch(page, /Ja, speichern und neu starten/);
+  assert.match(page, /kann diese beiden Werte nicht selbst/);
+  assert.match(page, /Kalibrierroutine daf(ü|u)r anmeldet/);
 
-  // SAVE_CONFIG writes every active value, not just this stage's. A button
-  // that implies otherwise would be lying about what it does.
-  assert.match(page, /nicht nur den dieser Stufe/);
-  assert.match(page, /ALLE aktuell aktiven Werte/);
+  // What does work: the lines to paste into the printer configuration.
+  assert.match(page, /configSnippet/);
+  assert.match(page, /\[extruder\]/);
+  assert.match(page, /pressure_advance: /);
+  assert.match(page, /\[firmware_retraction\]/);
+  assert.match(page, /retract_length: /);
+  assert.match(page, /unretract_speed: /);
+  assert.match(page, /clipboard\.writeText/);
+  assert.match(css, /\.config-snippet \{/);
 });
 
 test("the speed stage is honest about what the sensor cannot see", async () => {

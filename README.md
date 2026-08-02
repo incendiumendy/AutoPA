@@ -297,9 +297,12 @@ See [supervised firmware-retraction sweep](docs/RETRACT_SWEEP.md).
 - Context-assisted PA is also fail-closed: only an eligible feature marker
   whose Klipper `print_time` has been reached may open a PA evidence window.
 - Recording and dry-run never change PA or retraction.
-- Every apply is runtime-only. `SAVE_CONFIG` is offered as one
-  explicit, separately confirmed action in the dashboard, gated on
-  standby, and is never reached by the automatic pipeline.
+- Every apply is runtime-only, and AutoPA never writes the printer
+  configuration. Klipper's `SAVE_CONFIG` cannot persist pressure advance or
+  firmware retraction anyway: only modules that register a value through
+  `configfile.set()` reach the autosave block, and neither `extruder.py` nor
+  `firmware_retraction.py` does. The dashboard shows the configuration lines
+  to paste instead.
 - Analysis will first return a recommendation with confidence and per-cycle
   evidence.
 - Experimental live application is separately enabled, transiently armed,

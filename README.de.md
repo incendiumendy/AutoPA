@@ -314,9 +314,12 @@ Die Empfehlung ist fail-closed, experimentell und wird niemals automatisch
   Feature-Marker, dessen Klipper-`print_time` bereits erreicht ist, darf ein
   PA-Nachweisfenster öffnen.
 - Aufnahme und Dry-Run verändern PA und Rückzug nie.
-- Jede Übernahme gilt nur zur Laufzeit. `SAVE_CONFIG` wird als eine
-  ausdrücklich einzeln bestätigte Aktion im Dashboard angeboten, nur
-  im Standby, und wird von der automatischen Pipeline nie erreicht.
+- Jede Übernahme gilt nur zur Laufzeit, und AutoPA schreibt die
+  Druckerkonfiguration nie. Klippers `SAVE_CONFIG` kann Pressure Advance und
+  Firmware-Rückzug ohnehin nicht sichern: In den Autosave-Block gelangt nur,
+  was ein Modul über `configfile.set()` anmeldet — weder `extruder.py` noch
+  `firmware_retraction.py` tut das. Das Dashboard zeigt stattdessen die
+  Konfigurationszeilen zum Eintragen.
 - Die Auswertung liefert zunächst eine Empfehlung mit Konfidenz und Nachweisen
   je Zyklus.
 - Die experimentelle Übernahme im laufenden Betrieb wird separat freigegeben,

@@ -576,6 +576,11 @@ function StageChart({
   const min = Math.min(...costs);
   const span = max - min || 1;
   const step = width / points.length;
+  const bestPoint = points.find((p) => p.value === analysis.best);
+  const bestCost =
+    bestPoint?.cost !== null && bestPoint?.cost !== undefined
+      ? bestPoint.cost.toFixed(3)
+      : "—";
   // Lower cost is better, so the best value is drawn tallest.
   const barHeight = (cost: number) =>
     Math.max(2, ((max - cost) / span) * (height - 6) + 3);
@@ -583,7 +588,7 @@ function StageChart({
   return (
     <div className="stage-chart">
       <div className="stage-chart-head">
-        <span>Messkurve — niedriger ist besser</span>
+        <span>Messkurve — höherer Balken ist besser</span>
         {analysis.bestAtRangeEdge && (
           <span className="stage-chart-edge">Bester Wert am Rand</span>
         )}
@@ -629,6 +634,10 @@ function StageChart({
         ))}
       </div>
       <p className="stage-chart-note">
+        Die Balkenhöhe zeigt, wie gut ein Wert abgeschnitten hat. Intern wird
+        ein Kostenwert berechnet, bei dem <em>niedriger</em> besser ist — der
+        beste Wert hat also den höchsten Balken und die niedrigsten Kosten
+        ({bestCost}).{" "}
         {points.filter((p) => p.cost === null).length > 0 && (
           <>
             Werte ohne Balken lieferten zu wenig verwertbare Zyklen.{" "}
@@ -860,7 +869,6 @@ function StageAction({
   startLabel,
   onStart,
   onSave,
-  saveBusy,
   running,
   analyzing,
   analysisPercent,
@@ -868,7 +876,9 @@ function StageAction({
   analysisStep,
   confirmingSave,
   saveSummary,
-  onSaveConfirm,
+  configSnippet,
+  onCopyConfig,
+  copied,
   onSaveCancel,
   blockedReason,
 }: {
@@ -878,7 +888,6 @@ function StageAction({
   startLabel: string;
   onStart: () => void;
   onSave: () => void;
-  saveBusy: boolean;
   running?: StageProgress | null;
   analyzing?: boolean;
   analysisPercent?: number;
@@ -886,7 +895,9 @@ function StageAction({
   analysisStep?: string | null;
   confirmingSave?: boolean;
   saveSummary?: string;
-  onSaveConfirm?: () => void;
+  configSnippet?: string;
+  onCopyConfig?: () => void;
+  copied?: boolean;
   onSaveCancel?: () => void;
   blockedReason?: string | null;
 }) {
@@ -911,26 +922,25 @@ function StageAction({
     );
   }
   if (confirmingSave) {
-    // In place of the button, not at the foot of the card: the dialog used
-    // to open far below its trigger and had to be scrolled to.
+    // Shown where the button is, not at the foot of the card.
     return (
       <div className="confirm-box">
         <p>{saveSummary}</p>
+        <pre className="config-snippet">{configSnippet}</pre>
         <div className="confirm-actions">
           <button
             type="button"
-            className="danger-button"
-            disabled={saveBusy}
-            onClick={onSaveConfirm}
+            className="primary-button"
+            onClick={onCopyConfig}
           >
-            Ja, speichern und neu starten
+            {copied ? "Kopiert" : "Zeilen kopieren"}
           </button>
           <button
             type="button"
             className="secondary-button"
             onClick={onSaveCancel}
           >
-            Abbrechen
+            Schließen
           </button>
         </div>
       </div>
@@ -942,10 +952,9 @@ function StageAction({
         <button
           type="button"
           className="danger-button is-emphasised"
-          disabled={saveBusy || disabled}
           onClick={onSave}
         >
-          SAVE_CONFIG — Wert dauerhaft speichern
+          Wert dauerhaft übernehmen …
         </button>
         <button
           type="button"
@@ -1452,8 +1461,6 @@ export default function Home() {
   const [saveConfirmStage, setSaveConfirmStage] = useState<
     string | null
   >(null);
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
     const stored =
@@ -1799,29 +1806,41 @@ export default function Home() {
     }
   };
 
-  const postSaveConfig = async () => {
-    setSaveBusy(true);
-    setSaveMessage("");
+  const [copiedConfig, setCopiedConfig] = useState(false);
+
+  // Klipper's SAVE_CONFIG cannot store these values: only modules that call
+  // configfile.set() reach the autosave block - PID, bed mesh, probe
+  // offsets, input shaper - and neither extruder.py nor
+  // firmware_retraction.py does. Issuing it restarted Klipper, which
+  // discards the runtime value, and wrote nothing. The config lines below do
+  // work, so they are what the card offers.
+  const configSnippet = useMemo(() => {
+    const pa = formatNumber(status.printer.pressureAdvance, 3);
+    const length = formatNumber(status.printer.retractLength, 2);
+    const speed = formatNumber(status.printer.retractSpeed, 0);
+    return [
+      "[extruder]",
+      `pressure_advance: ${pa}`,
+      "",
+      "[firmware_retraction]",
+      `retract_length: ${length}`,
+      `retract_speed: ${speed}`,
+      `unretract_speed: ${speed}`,
+    ].join("\n");
+  }, [
+    status.printer.pressureAdvance,
+    status.printer.retractLength,
+    status.printer.retractSpeed,
+  ]);
+
+  const copyConfigSnippet = async () => {
     try {
-      const response = await fetch("api/save-config", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phrase: ARM_PHRASE }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Speichern abgelehnt");
-      setSaveMessage(
-        "SAVE_CONFIG gesendet. Klipper startet neu — das Dashboard verliert" +
-          " kurz die Verbindung und meldet sich von selbst zurück.",
-      );
-      setSaveConfirmStage(null);
-    } catch (error) {
-      setSaveMessage(
-        error instanceof Error ? error.message : "Speichern fehlgeschlagen",
-      );
-    } finally {
-      setSaveBusy(false);
+      await navigator.clipboard.writeText(configSnippet);
+      setCopiedConfig(true);
+      window.setTimeout(() => setCopiedConfig(false), 2000);
+    } catch {
+      // Clipboard access can be denied; the lines stay selectable by hand.
+      setCopiedConfig(false);
     }
   };
 
@@ -1933,18 +1952,6 @@ export default function Home() {
     status.printer.retractLength,
   ]);
 
-  const saveConfirmSummary = useMemo(
-    () =>
-      `SAVE_CONFIG schreibt ALLE aktuell aktiven Werte in die printer.cfg — nicht nur den dieser Stufe: Pressure Advance ${formatNumber(status.printer.pressureAdvance, 3)}, Rückzug ${formatNumber(status.printer.retractLength, 2)} mm bei ${formatNumber(status.printer.retractSpeed, 0)} mm/s. Klipper schreibt die Datei um und startet danach neu. Rückgängig geht das nur, indem du die Datei selbst wieder änderst. Wirklich speichern?`,
-    [
-      status.printer.pressureAdvance,
-      status.printer.retractLength,
-      status.printer.retractSpeed,
-    ],
-  );
-
-  // While an analysis runs the capture manager is busy and a second stage
-  // would fight it for the recorder, so every stage button is held.
   const analysisBusy = Boolean(
     status.sweep.analysis?.busy || status.paSweep.analysis?.busy,
   );
@@ -1960,6 +1967,12 @@ export default function Home() {
       : status.printer.printState !== "standby"
         ? `Der Drucker ist „${status.printer.printState || "unbekannt"}“. Die Stufen laufen nur im Standby.`
         : null;
+
+  const saveConfirmSummary = useMemo(
+    () =>
+      `Klipper kann Pressure Advance und Rückzug nicht selbst speichern — SAVE_CONFIG legt nur Werte ab, die eine Kalibrierroutine dafür anmeldet (PID, Bed Mesh, Probe-Offsets, Input Shaper). Trage diese Zeilen in deine Druckerkonfiguration ein, damit sie einen Neustart überleben:`,
+    [],
+  );
 
   const paConfirmSummary = useMemo(() => {
     const values = countSweepValues(paKStart, paKStop, paKStep);
@@ -2387,10 +2400,11 @@ export default function Home() {
                   startLabel="Stufe 1 starten …"
                   onStart={() => setPaConfirming(true)}
                   onSave={() => setSaveConfirmStage("pa")}
-                  saveBusy={saveBusy}
                   confirmingSave={saveConfirmStage === "pa"}
                   saveSummary={saveConfirmSummary}
-                  onSaveConfirm={postSaveConfig}
+                  configSnippet={configSnippet}
+                  onCopyConfig={copyConfigSnippet}
+                  copied={copiedConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
                   blockedReason={stageBlockedReason}
                   running={status.paSweep.running}
@@ -2532,10 +2546,11 @@ export default function Home() {
                   startLabel="Stufe 2 starten …"
                   onStart={() => setSweepConfirming(true)}
                   onSave={() => setSaveConfirmStage("length")}
-                  saveBusy={saveBusy}
                   confirmingSave={saveConfirmStage === "length"}
                   saveSummary={saveConfirmSummary}
-                  onSaveConfirm={postSaveConfig}
+                  configSnippet={configSnippet}
+                  onCopyConfig={copyConfigSnippet}
+                  copied={copiedConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
                   blockedReason={stageBlockedReason}
                   running={status.sweep.running}
@@ -2714,10 +2729,11 @@ export default function Home() {
                   startLabel="Stufe 3 starten …"
                   onStart={() => setSpeedConfirming(true)}
                   onSave={() => setSaveConfirmStage("speed")}
-                  saveBusy={saveBusy}
                   confirmingSave={saveConfirmStage === "speed"}
                   saveSummary={saveConfirmSummary}
-                  onSaveConfirm={postSaveConfig}
+                  configSnippet={configSnippet}
+                  onCopyConfig={copyConfigSnippet}
+                  copied={copiedConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
                   blockedReason={stageBlockedReason}
                   running={status.sweep.running}
@@ -2933,29 +2949,28 @@ export default function Home() {
               )}
 
               <div className="phase-divider">
-                <span>Zum Speichern · Hinweis</span>
+                <span>Werte dauerhaft machen</span>
               </div>
 
               <p className="control-note">
-                Sobald eine Stufe einen Wert übernommen hat, bietet sie an
-                ihrer Stelle <strong>SAVE_CONFIG</strong> an. Achtung: Klipper
-                schreibt dabei immer <strong>alle</strong> aktiven Werte in die
-                Konfiguration, nicht nur den dieser Stufe. Ohne Speichern gilt
-                jede Übernahme nur zur Laufzeit. Aktuell aktiv: PA{" "}
+                Jede Übernahme oben gilt <strong>nur zur Laufzeit</strong>.
+                Nach einem Klipper-Neustart stehen wieder die Werte aus deiner
+                Konfiguration. Aktuell aktiv: PA{" "}
                 {formatNumber(status.printer.pressureAdvance, 3)}, Rückzug{" "}
                 {formatNumber(status.printer.retractLength, 2)} mm bei{" "}
                 {formatNumber(status.printer.retractSpeed, 0)} mm/s.
               </p>
               <p className="control-note warn">
-                <strong>SAVE_CONFIG schreibt deine `printer.cfg` um und
-                startet Klipper neu.</strong> Klipper legt die Werte in seinem
-                Autosave-Block ab; bei geschichteten Konfigurationen wie RatOS
-                kann das mit eigenen Einträgen kollidieren. Nur im Standby
-                möglich. Die Bestätigung erscheint direkt bei der Stufe, an
-                der du klickst — hier steht nur die Erklärung.
+                <strong>Klipper kann diese beiden Werte nicht selbst
+                speichern.</strong> `SAVE_CONFIG` schreibt nur, was eine
+                Kalibrierroutine dafür anmeldet — PID, Bed Mesh,
+                Probe-Offsets, Input Shaper. Pressure Advance und
+                Firmware-Rückzug gehören nicht dazu. Ein `SAVE_CONFIG` würde
+                Klipper neu starten und dabei genau den Laufzeitwert
+                verwerfen, den du behalten wolltest. Nutze stattdessen den
+                Knopf an der jeweiligen Stufe: er zeigt die Zeilen zum
+                Eintragen.
               </p>
-
-              {saveMessage && <p className="control-message">{saveMessage}</p>}
             </article>
           </div>
 
