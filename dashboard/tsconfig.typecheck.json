@@ -1,0 +1,11 @@
+{
+  // Typechecks what the printer dashboard actually ships. The worker/ and db/
+  // directories are Cloudflare scaffolding left from the project template;
+  // nothing under app/ imports them and their types are not installed, so
+  // including them would keep this gate permanently red.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": ["next-env.d.ts", "app/**/*.ts", "app/**/*.tsx"]
+}

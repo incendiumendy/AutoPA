@@ -44,3 +44,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# Incremental typecheck cache.
+tsconfig.tsbuildinfo

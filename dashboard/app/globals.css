@@ -1644,3 +1644,116 @@ footer {
 .danger-button:disabled:hover {
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* Floating live camera. position: fixed so it keeps its place while the page
+   scrolls; it snaps to the nearest viewport edges when a drag ends. */
+.camera-window {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+}
+
+.camera-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 11px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
+  cursor: grab;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.camera-bar:active {
+  cursor: grabbing;
+}
+
+.camera-close {
+  border: 0;
+  padding: 0 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.camera-close:hover,
+.camera-close:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.camera-image {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: #000;
+  object-fit: contain;
+}
+
+/* Resize grip in the bottom-right corner. */
+.camera-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    rgba(var(--primary-rgb), 0.55) 50%
+  );
+  cursor: nwse-resize;
+}
+
+.camera-reopen {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 40;
+  border: 1px solid rgba(var(--primary-rgb), 0.32);
+  border-radius: 999px;
+  padding: 7px 13px;
+  background: var(--surface);
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.camera-reopen:hover,
+.camera-reopen:focus-visible {
+  background: rgba(var(--primary-rgb), 0.12);
+  outline: none;
+}
+
+/* On a narrow screen a floating window covers the controls it is meant to
+   accompany, so it docks to the bottom instead. */
+@media (max-width: 640px) {
+  .camera-window {
+    left: 0 !important;
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    width: 100% !important;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .camera-resize {
+    display: none;
+  }
+}
