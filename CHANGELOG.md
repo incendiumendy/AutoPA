@@ -84,6 +84,15 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Fehlerbehebung: Stufe 3 (Rückzugsgeschwindigkeit) legte gar keine Aufnahme
+  an und lieferte deshalb nie ein Ergebnis. `auto_apply` steuerte zwei
+  verschiedene Dinge zugleich — ob überhaupt aufgezeichnet und ausgewertet
+  wird, und ob das Ergebnis automatisch übernommen werden darf. Die
+  Geschwindigkeitsstufe setzt es bewusst auf `false`, weil ihr Ergebnis nie
+  automatisch angewendet werden soll; damit schaltete sie sich auch die
+  Messung ab und bewegte den Drucker für nichts. Beides ist jetzt getrennt:
+  `analyze` steuert Aufnahme und Auswertung, `auto_apply` nur die Übernahme.
+
 - Signalbewertung je Lauf mit Empfehlung zur Wiederholung. Ein schwaches
   Signal, das trotzdem ein Ergebnis liefert, ist gefährlicher als eins, das
   gar keines liefert: Der Gewinner wechselt dann von Lauf zu Lauf, sieht aber
@@ -398,6 +407,15 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- bug fix: stage 3 (retraction speed) created no capture at all and could
+  therefore never produce a result. `auto_apply` controlled two different
+  things at once - whether the run is recorded and analysed, and whether the
+  result may be applied automatically. The speed stage sets it to `false` on
+  purpose because its result must never be applied, and thereby switched off
+  its own measurement, moving the printer for nothing. The two are now
+  separate: `analyze` governs capture and analysis, `auto_apply` only the
+  applying.
 
 - per-run signal verdict with a repeat recommendation. A weak signal that
   still produces a result is more dangerous than one that produces none: the

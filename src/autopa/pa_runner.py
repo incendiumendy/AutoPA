@@ -120,6 +120,9 @@ class PaSweepRunner:
 
         values, k_values = self._validated_values(payload)
         auto_apply = bool(payload.get("auto_apply", True))
+        # Capture and analysis are worth doing even when the
+        # result may not be applied automatically.
+        analyze = bool(payload.get("analyze", auto_apply))
         apply_bound = validated_apply_bound(
             payload.get("apply_bound"), "pa")
         position = validated_position(
@@ -155,6 +158,7 @@ class PaSweepRunner:
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),
             "autoApply": auto_apply,
+            "analyze": analyze,
             "applyBound": apply_bound,
         }
         self.last_error = None
