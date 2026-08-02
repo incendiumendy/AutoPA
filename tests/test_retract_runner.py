@@ -1,6 +1,9 @@
+import json
+import io
 import unittest
+import urllib.error
 
-from autopa.retract_runner import RetractSweepRunner
+from autopa.retract_runner import RetractSweepRunner, _moonraker_error
 
 
 def printer_status(state="standby", retract_length=0.5, retract_speed=120.0,
@@ -233,7 +236,7 @@ class RetractSweepRunnerTest(unittest.TestCase):
                 runner.run(
                     run_payload(),
                     printer_status=printer_status(homed_axes=homed_axes))
-            self.assertIn("homed", str(raised.exception))
+            self.assertIn("G28", str(raised.exception))
         self.assertEqual(scripts, [])
 
     def test_fully_homed_printer_is_accepted(self):
@@ -246,3 +249,28 @@ class RetractSweepRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MoonrakerErrorTest(unittest.TestCase):
+    """Klipper's rejection must reach the operator, not kill the request."""
+
+    def error(self, message):
+        return urllib.error.HTTPError(
+            "http://x", 400, "Bad Request", {},
+            io.BytesIO(json.dumps({"error": {"message": message}}).encode()))
+
+    def test_cold_nozzle_is_explained_in_plain_language(self):
+        raised = _moonraker_error(
+            self.error("AutoPA requires a hot extruder above min_extrude_temp"))
+        self.assertIn("zu kalt", raised)
+        self.assertIn("Drucktemperatur", raised)
+
+    def test_other_rejections_keep_klippers_wording(self):
+        raised = _moonraker_error(self.error("Must home axis first"))
+        self.assertIn("Must home axis first", raised)
+        self.assertIn("abgelehnt", raised)
+
+    def test_unreadable_body_still_produces_a_message(self):
+        broken = urllib.error.HTTPError(
+            "http://x", 400, "Bad Request", {}, io.BytesIO(b"not json"))
+        self.assertIn("abgelehnt", _moonraker_error(broken))

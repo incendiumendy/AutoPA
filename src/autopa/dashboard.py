@@ -241,9 +241,24 @@ class DashboardData:
         self.retract_analyzer = retract_analyzer or analyze_retract_dataset
         self.pa_analyzer = pa_analyzer or analyze_dataset
         self.sleep_fn = sleep_fn or time.sleep
+        # A sweep's analysis keeps running long after its G-code is sent.
+        # Guards the stages against overlapping, and remembers whether a live
+        # preview has to be put back afterwards.
+        self._sweep_pipeline_busy = False
+        self._sweep_pipeline_stage = None
+        self._sweep_pipeline_until = 0.0
+        self._resume_live_after_sweep = False
         self.align_fn = align_fn or align_dataset
 
     def sweep_status(self):
+        status = self._sweep_status()
+        # The stage buttons need to know an analysis is still running, or the
+        # operator reads a stale result as this stage's outcome and starts the
+        # next one on top of it.
+        status["analysis"] = self.analysis_status()
+        return status
+
+    def _sweep_status(self):
         return (
             self.sweep_runner.status() if self.sweep_runner else {
                 "allowPrinterCommands": False,
@@ -262,6 +277,10 @@ class DashboardData:
             status = self.sweep_runner.run(payload)
         except Exception:
             self._stop_started_capture(started_capture, "sweep_rejected")
+            # A rejected sweep never reaches the pipeline, so the live
+            # preview has to be put back here or a cold nozzle silently
+            # leaves the operator without live data.
+            self._restore_live_capture()
             raise
         self._schedule_post_sweep("retract", started_capture)
         return status
@@ -280,6 +299,11 @@ class DashboardData:
         return self.sweep_runner.save_config(payload)
 
     def pa_sweep_status(self):
+        status = self._pa_sweep_status()
+        status["analysis"] = self.analysis_status()
+        return status
+
+    def _pa_sweep_status(self):
         return (
             self.pa_sweep_runner.status() if self.pa_sweep_runner else {
                 "allowPrinterCommands": False,
@@ -298,6 +322,10 @@ class DashboardData:
             status = self.pa_sweep_runner.run(payload)
         except Exception:
             self._stop_started_capture(started_capture, "sweep_rejected")
+            # A rejected sweep never reaches the pipeline, so the live
+            # preview has to be put back here or a cold nozzle silently
+            # leaves the operator without live data.
+            self._restore_live_capture()
             raise
         self._schedule_post_sweep("pa", started_capture)
         return status
@@ -308,6 +336,15 @@ class DashboardData:
             return False
         if not payload.get("auto_apply", True):
             return False
+        if self._sweep_pipeline_busy:
+            # Stages run back to back but the post-sweep pipeline keeps
+            # working for more than a minute after the G-code is sent. Two
+            # overlapping pipelines fight over the capture manager and write
+            # each other's results, which is how a PA stage ended up
+            # reporting the retraction stage's dataset.
+            raise ValueError(
+                "Die Auswertung der vorigen Stufe läuft noch. Warte, bis das "
+                "Ergebnis dort steht — sonst vermischen sich die Messungen.")
         manager = self.capture_manager
         if manager is None:
             return False
@@ -317,17 +354,45 @@ class DashboardData:
         # would run anyway - which is exactly how three calibration stages
         # once extruded filament and produced nothing analysable.
         if not manager.status().get("canStart"):
-            raise ValueError(
-                "Eine Messung läuft bereits. Schalte die Live-Daten aus, "
-                "bevor du einen Sweep startest — sonst kann der Sweep seine "
-                "eigene Aufnahme nicht anlegen und das Ergebnis wäre nicht "
-                "auswertbar.")
+            # A live preview is just a passive recorder and starting or
+            # stopping it sends no G-code, so the sweep takes it over rather
+            # than making the operator do it by hand. It is restored when the
+            # sweep pipeline finishes.
+            if not self._pause_live_capture():
+                raise ValueError(
+                    "Es läuft bereits eine Messung, die nicht übernommen "
+                    "werden konnte. Bitte kurz warten und erneut versuchen.")
         try:
             manager.start("standby", name)
-            return True
+            # Remember the exact dataset instead of reading the manager's
+            # current one at the end of the pipeline: stages run back to back
+            # and the post-sweep thread waits over a minute, so by then the
+            # manager already reports the *next* stage's dataset. That is how
+            # a PA sweep once analyzed the retraction sweep's data.
+            return manager.status().get("dataset") or True
         except Exception:
             # A recorder that cannot start never blocks the confirmed sweep.
             return False
+
+    def _pause_live_capture(self):
+        """Stop a passive live preview so a sweep can own its own capture."""
+        manager = self.capture_manager
+        status = manager.status()
+        if status.get("attachedToPrint"):
+            # A print-bound capture belongs to a running print; never take it.
+            return False
+        try:
+            manager.stop("superseded_by_sweep")
+        except Exception:
+            return False
+        # Counted rather than wall-clock so an injected no-op sleep does not
+        # turn this into a 30 second spin in the tests.
+        for _ in range(60):
+            if manager.status().get("canStart"):
+                self._resume_live_after_sweep = True
+                return True
+            self.sleep_fn(0.5)
+        return False
 
     def _stop_started_capture(self, started_capture, reason):
         if not started_capture or self.capture_manager is None:
@@ -352,12 +417,26 @@ class DashboardData:
             wait = min(max(float(duration), 0.0) + 90.0, 900.0)
         except (TypeError, ValueError):
             wait = 900.0
+        self._sweep_pipeline_busy = True
+        self._sweep_pipeline_stage = kind
+        self._sweep_pipeline_until = time.monotonic() + wait
         thread = threading.Thread(
             target=self._post_sweep_pipeline,
             args=(kind, wait, started_capture),
             name="autopa-post-sweep-%s" % kind,
             daemon=True)
         thread.start()
+
+    def analysis_status(self):
+        """What the post-sweep pipeline is doing, for the stage buttons."""
+        if not self._sweep_pipeline_busy:
+            return {"busy": False, "stage": None, "secondsRemaining": 0}
+        remaining = max(0.0, self._sweep_pipeline_until - time.monotonic())
+        return {
+            "busy": True,
+            "stage": self._sweep_pipeline_stage,
+            "secondsRemaining": int(remaining),
+        }
 
     def _post_sweep_pipeline(self, kind, wait, started_capture):
         runner = (
@@ -396,6 +475,31 @@ class DashboardData:
             runner.apply_recommendation(recommendation[key], source=source)
         except Exception:
             runner.record_apply_skip("analysis_failed", source=source)
+        finally:
+            self._sweep_pipeline_busy = False
+            self._restore_live_capture()
+
+    def _restore_live_capture(self):
+        """Put a live preview back if a sweep took it over."""
+        if not self._resume_live_after_sweep:
+            return
+        self._resume_live_after_sweep = False
+        manager = self.capture_manager
+        if manager is None:
+            return
+        try:
+            # Stopping is not instant. Checking canStart straight away found
+            # the recorder still shutting down and skipped the restart, so
+            # taking the preview over quietly turned it off for good.
+            for _ in range(60):
+                if manager.status().get("canStart"):
+                    manager.start("standby", "live-preview")
+                    return
+                self.sleep_fn(0.5)
+        except Exception:
+            # Live data is a convenience; failing to restore it must never
+            # surface as a sweep failure.
+            pass
 
     def _finish_sweep_capture(self, started_capture):
         manager = self.capture_manager
@@ -413,10 +517,11 @@ class DashboardData:
             if not manager.status().get("active"):
                 break
             self.sleep_fn(1.0)
-        status = manager.status()
-        if status.get("active"):
-            return None
-        dataset = status.get("dataset")
+        # started_capture carries the dataset this sweep created. Falling back
+        # to the manager's current one would pick up a later stage's capture.
+        dataset = (
+            started_capture if isinstance(started_capture, str)
+            else manager.status().get("dataset"))
         if not dataset:
             return None
         candidate = os.path.join(manager.output_root, dataset)

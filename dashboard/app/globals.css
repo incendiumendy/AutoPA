@@ -1267,6 +1267,17 @@ select {
   border-left-color: var(--amber);
 }
 
+/* Analysis still running: the stage is not finished, and a blank result
+   would read as "done, nothing found". */
+.stage-result.tone-busy {
+  border-left-color: var(--purple);
+  background: rgba(185, 140, 255, 0.06);
+}
+
+.stage-result.tone-busy strong {
+  color: var(--purple);
+}
+
 /* A note that carries a real caveat rather than background information. */
 .control-note.warn {
   border-left: 2px solid var(--amber);

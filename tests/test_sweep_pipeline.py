@@ -48,21 +48,37 @@ class FakeCaptureManager:
         self.started = []
         self.stopped = []
         self.can_start = True
+        # Models a passive live preview the sweep is allowed to take over,
+        # a print-bound capture it must not touch, and one that will not stop.
+        self.live_active = False
+        self.attached_to_print = False
+        self.stuck = False
         os.makedirs(os.path.join(output_root, dataset), exist_ok=True)
 
     def status(self):
+        # A capture is active while a live preview runs or while more starts
+        # than stops have happened. canStart follows from that, so a manager
+        # can be reused after a stop the way the real one is.
+        active = self.live_active or len(self.started) > len(self.stopped)
         return {
-            "canStart": self.can_start and not self.started,
-            "active": bool(self.started) and not self.stopped,
+            "canStart": self.can_start and not active,
+            "active": active,
+            "attachedToPrint": self.attached_to_print,
             "dataset": self.dataset,
         }
 
     def start(self, print_state, name):
         self.started.append((print_state, name))
+        # Each start gets its own dataset, the way the real manager does.
+        self.dataset = "%s-ds" % name
+        os.makedirs(
+            os.path.join(self.output_root, self.dataset), exist_ok=True)
         return self.status()
 
     def stop(self, reason="user"):
         self.stopped.append(reason)
+        if self.live_active and not self.stuck:
+            self.live_active = False
         return self.status()
 
 
@@ -119,7 +135,7 @@ class SweepPipelineTest(unittest.TestCase):
             apply = runner.last_apply
             self.assertTrue(apply["applied"])
             self.assertEqual(apply["appliedMm"], 1.2)
-            self.assertEqual(apply["source"], "sweep-ds")
+            self.assertEqual(apply["source"], "retract-sweep-ds")
             self.assertEqual(manager.stopped, ["sweep_finished"])
             self.assertEqual(
                 scripts[-1], "SET_RETRACTION RETRACT_LENGTH=1.200")
@@ -210,27 +226,85 @@ class SweepPipelineTest(unittest.TestCase):
             self.assertEqual(manager.stopped, ["sweep_rejected"])
             self.assertIsNone(runner.last_apply)
 
-    def test_busy_capture_refuses_before_the_printer_moves(self):
-        # A sweep that cannot own its capture produces nothing analysable:
-        # the running capture is never finalised, so there are no markers.
-        # It used to run anyway and report no_capture_dataset afterwards,
-        # having extruded filament for nothing. Now it refuses up front.
-        for kind in ("retract", "pa"):
-            with tempfile.TemporaryDirectory() as tmp:
-                data, runner, manager, scripts, _ = self.make_data(
-                    tmp, {"recommendation": {"retract_length_mm": 1.2}},
-                    kind=kind)
-                manager.can_start = False
-                manager.dataset = None
-                run = data.run_sweep if kind == "retract" else data.run_pa_sweep
-                payload = RETRACT_PAYLOAD if kind == "retract" else PA_PAYLOAD
-                with self.assertRaises(ValueError) as raised:
-                    run(dict(payload))
-                self.assertIn("Live-Daten", str(raised.exception))
-                # Nothing was sent and no capture was taken over.
-                self.assertEqual(scripts, [], "%s sweep must not run" % kind)
-                self.assertEqual(manager.started, [])
-                self.assertIsNone(runner.last_apply)
+    def test_live_preview_is_taken_over_and_put_back(self):
+        # Turning live data off by hand before every stage is busywork: the
+        # preview is a passive recorder and stopping it sends no G-code, so
+        # the sweep takes it over and restores it when the analysis is done.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            manager.live_active = True
+            data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertIn("superseded_by_sweep", manager.stopped)
+            self.assertEqual(manager.started[0], ("standby", "retract-sweep"))
+            self.assertTrue(
+                wait_for(lambda: runner.last_apply is not None))
+            self.assertTrue(runner.last_apply["applied"])
+            # The preview comes back once the pipeline is finished.
+            self.assertTrue(
+                wait_for(lambda: ("standby", "live-preview") in manager.started))
+
+    def test_live_preview_returns_after_a_rejected_sweep(self):
+        # A rejected sweep never reaches the pipeline, so the restore has to
+        # happen on the rejection path too - otherwise a cold nozzle or an
+        # unhomed printer silently leaves the operator without live data.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            manager.live_active = True
+            runner._printer_status = lambda: {
+                "print_stats": {"state": "printing"}}
+            with self.assertRaises(ValueError):
+                data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertEqual(scripts, [])
+            self.assertIn(("standby", "live-preview"), manager.started)
+
+    def test_print_bound_capture_is_never_taken_over(self):
+        # A capture attached to a running print belongs to that print.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            manager.live_active = True
+            manager.attached_to_print = True
+            with self.assertRaises(ValueError):
+                data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertEqual(scripts, [], "the printer must not move")
+            self.assertEqual(manager.stopped, [])
+            self.assertIsNone(runner.last_apply)
+
+    def test_a_second_stage_cannot_start_while_one_is_analyzing(self):
+        # Stages run back to back but the pipeline keeps working for over a
+        # minute. Two overlapping pipelines fight over the capture manager
+        # and write each other's results.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            data._sweep_pipeline_busy = True
+            data._sweep_pipeline_stage = "pa"
+            with self.assertRaises(ValueError) as raised:
+                data.run_sweep(dict(RETRACT_PAYLOAD))
+            self.assertIn("Auswertung", str(raised.exception))
+            self.assertEqual(scripts, [])
+            self.assertTrue(data.analysis_status()["busy"])
+            self.assertEqual(data.analysis_status()["stage"], "pa")
+
+    def test_each_stage_analyzes_the_dataset_it_created(self):
+        # The pipeline waits over a minute before reading the dataset, by
+        # which time the manager may already report a later stage's capture.
+        # A PA stage once reported the retraction stage's dataset that way.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, _, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 1.2}})
+            data.run_sweep(dict(RETRACT_PAYLOAD))
+            # Something else claims the manager while the pipeline sleeps.
+            manager.dataset = "some-other-stage-ds"
+            os.makedirs(
+                os.path.join(tmp, "some-other-stage-ds"), exist_ok=True)
+            self.assertTrue(
+                wait_for(lambda: runner.last_apply is not None))
+            self.assertEqual(
+                runner.last_apply["source"], "retract-sweep-ds",
+                "must analyze the capture this sweep started")
 
     def test_capture_that_fails_to_start_never_analyzes_stale_data(self):
         # A recorder that is free but errors on start must not block a sweep

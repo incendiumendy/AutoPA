@@ -158,10 +158,19 @@ test("every stage reports what it handed to the next one", async () => {
   // stage 2 then measures at that PA and applies a length, stage 3 holds
   // that length. A silent result would leave the operator measuring against
   // a value nobody confirmed.
-  const results = page.match(/<StageResult /g) ?? [];
+  const results = page.match(/<StageResult/g) ?? [];
   assert.equal(results.length, 3, "all three stages report their result");
   assert.match(page, /apply=\{status\.paSweep\.lastApply\}/);
-  assert.match(page, /apply=\{status\.sweep\.lastApply\}/);
+  // Stage 2 and 3 share the retract runner, so each must read its own slot -
+  // with one shared slot the later stage blanked the earlier one's result.
+  assert.match(page, /lastApplyByMode\?\.length/);
+  assert.match(page, /lastApplyByMode\?\.speed/);
+
+  // "Nothing shown" used to mean never-run, still-analyzing and finished
+  // alike. Each state now says which one it is.
+  assert.match(page, /Daten werden ausgewertet/);
+  assert.match(page, /Kein Ergebnis\./);
+  assert.match(page, /analysisBusy/);
   assert.match(css, /\.stage-result \{/);
 
   // Runtime-only application is the whole safety story - say so.
@@ -189,10 +198,11 @@ test("primes every stage and warns while a capture is running", async () => {
   assert.match(page, /useState\("10"\)/);
   assert.match(page, /zwischen je zwei Kandidatenwerten/);
 
-  // A sweep cannot own its capture while live data runs, so the card has to
-  // say so before the operator burns a run on it.
-  assert.match(page, /Sweep gesperrt/);
-  assert.match(page, /eigene<\/strong> Aufnahme/);
+  // The live preview is passive and stopping it sends no G-code, so the
+  // sweep takes it over instead of making the operator do it by hand.
+  assert.match(page, /kurz übernommen/);
+  // A second stage during an analysis would fight for the recorder.
+  assert.match(page, /Stufen sind so lange\s+gesperrt/);
 });
 
 test("save-config is opt-in, standby only and states the consequence", async () => {
