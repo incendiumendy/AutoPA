@@ -374,3 +374,49 @@ test("shows progress instead of a dead start button while working", async () => 
   assert.match(css, /autopa-progress-sheen/);
   assert.match(css, /prefers-reduced-motion/);
 });
+
+test("the camera window floats, snaps to edges and survives a reload", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // Fixed, and mounted outside <main>, so it keeps its viewport position
+  // while the page scrolls instead of being clipped by the layout.
+  assert.match(css, /\.camera-window \{[^}]*position: fixed/);
+  const beforeMain = page.slice(0, page.indexOf("<main>"));
+  assert.match(beforeMain, /<CameraWindow streamUrl=\{cameraStreamUrl\}/);
+
+  // The stream lives on the printer's normal web port even when the
+  // dashboard is opened directly on 7126.
+  assert.match(page, /url\.port === "7126"/);
+  assert.match(page, /\/webcam\//);
+  assert.match(page, /action=stream/);
+
+  // Drag, resize, edge snapping and a remembered position. The geometry
+  // itself lives in camera-box.ts so it can be unit tested; see
+  // tests/camera-box.test.mjs.
+  const geometry = await readFile(
+    new URL("../app/camera-box.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(geometry, /export function snapCamBox/);
+  assert.match(geometry, /export function clampCamBox/);
+  assert.match(geometry, /CAM_SNAP_PX/);
+  assert.match(page, /snapCamBox\(/);
+  assert.match(page, /clampCamBox\(/);
+  assert.match(page, /CAM_STORAGE_KEY/);
+  assert.match(page, /localStorage\.setItem/);
+  assert.match(css, /\.camera-resize \{/);
+  assert.match(css, /cursor: nwse-resize/);
+
+  // Snapping happens when the drag ends, not during it.
+  const up = page.slice(page.indexOf("const onPointerUp"));
+  assert.match(up.slice(0, 400), /snapCamBox/);
+  const move = page.slice(page.indexOf("const onPointerMove"));
+  assert.doesNotMatch(move.slice(0, 700), /snapCamBox/);
+});

@@ -1,6 +1,15 @@
 "use client";
 
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CAM_STORAGE_KEY,
+  type CamBox,
+  isMeasurableViewport,
+  clampCamBox,
+  defaultCamBox,
+  snapCamBox,
+} from "./camera-box";
 
 type SignalState = "ok" | "waiting" | "warning" | "error";
 
@@ -186,10 +195,16 @@ type SweepStatus = {
   confirmationPhraseRequired: boolean;
   lastRun: SweepLastRun | null;
   lastApply: SweepApply | null;
+  lastAnalysis?: StageAnalysis | null;
   // Stage 2 and stage 3 share the retract runner, so each keeps its own slot.
   lastApplyByMode?: Record<string, SweepApply | null>;
   lastRunByMode?: Record<string, SweepLastRun | null>;
+  lastAnalysisByMode?: Record<string, StageAnalysis | null>;
   analysis?: SweepAnalysis;
+  // Set while the printer is executing this stage's script. Moonraker only
+  // answers once the whole script has run, so this is the only signal the
+  // page has while the sweep is under way.
+  running?: StageProgress | null;
   lastError: string | null;
   printerAction: "none";
 };
@@ -485,7 +500,7 @@ const APPLY_SKIP_REASONS: Record<string, string> = {
 // pressure advance nobody confirmed.
 function describeStageResult(
   apply: SweepApply | null,
-  unit: "K" | "mm",
+  unit: string,
 ): { text: string; tone: "ok" | "info" | "warn" } | null {
   if (!apply) return null;
   if (apply.advisory) {
@@ -649,6 +664,157 @@ const ANALYSIS_STEPS: Record<string, string> = {
   quality: "Qualitätsprüfung der Messkette",
   analyzing: "Auswertung der Messzyklen",
 };
+
+const viewport = () => ({
+  width: window.innerWidth,
+  height: window.innerHeight,
+});
+
+function CameraWindow({ streamUrl }: { streamUrl: string }) {
+  const [box, setBox] = useState<CamBox | null>(null);
+  const drag = useRef<
+    | {
+        mode: "move" | "resize";
+        pointerId: number;
+        startX: number;
+        startY: number;
+        origin: CamBox;
+      }
+    | null
+  >(null);
+
+  // Placed on the client only: the position depends on the viewport, which
+  // does not exist while the page is rendered on the server.
+  useEffect(() => {
+    let initial: CamBox = defaultCamBox(viewport());
+    try {
+      const stored = window.localStorage.getItem(CAM_STORAGE_KEY);
+      if (stored) initial = { ...initial, ...JSON.parse(stored) };
+    } catch {
+      // A corrupt entry must not keep the window off screen.
+    }
+    setBox(clampCamBox(initial, viewport()));
+  }, []);
+
+  useEffect(() => {
+    if (!box) return;
+    if (!isMeasurableViewport(viewport())) return;
+    try {
+      window.localStorage.setItem(CAM_STORAGE_KEY, JSON.stringify(box));
+    } catch {
+      // Storage may be unavailable; the window still works this session.
+    }
+  }, [box]);
+
+  // A viewport that shrinks must not strand the window outside it.
+  useEffect(() => {
+    const onResize = () => setBox((b) => (b ? clampCamBox(b, viewport()) : b));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const onPointerDown = (mode: "move" | "resize") => (
+    event: ReactPointerEvent,
+  ) => {
+    if (!box) return;
+    event.preventDefault();
+    try {
+      // Capture keeps the drag alive when the pointer leaves the window. It
+      // throws for a pointer the browser does not know, and an exception
+      // here would abort before the drag state is set - leaving a window
+      // that simply refuses to move.
+      (event.target as Element).setPointerCapture?.(event.pointerId);
+    } catch {
+      // Dragging still works without capture as long as the pointer stays
+      // over the window.
+    }
+    drag.current = {
+      mode,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: box,
+    };
+  };
+
+  const onPointerMove = (event: ReactPointerEvent) => {
+    const state = drag.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    const dx = event.clientX - state.startX;
+    const dy = event.clientY - state.startY;
+    setBox(
+      clampCamBox(
+        state.mode === "move"
+          ? { ...state.origin, x: state.origin.x + dx, y: state.origin.y + dy }
+          : {
+              ...state.origin,
+              width: state.origin.width + dx,
+              height: state.origin.height + dy,
+            },
+        viewport(),
+      ),
+    );
+  };
+
+  const onPointerUp = (event: ReactPointerEvent) => {
+    const state = drag.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    drag.current = null;
+    // Snap only when the drag ends, so the window does not jump around
+    // while it is still being moved.
+    setBox((b) => (b ? snapCamBox(b, viewport()) : b));
+  };
+
+  if (!box) return null;
+
+  if (box.hidden) {
+    return (
+      <button
+        type="button"
+        className="camera-reopen"
+        onClick={() => setBox({ ...box, hidden: false })}
+      >
+        Kamera einblenden
+      </button>
+    );
+  }
+
+  return (
+    <section
+      className="camera-window"
+      style={{
+        left: box.x,
+        top: box.y,
+        width: box.width,
+        height: box.height,
+      }}
+      aria-label="Live-Kamera"
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      <div className="camera-bar" onPointerDown={onPointerDown("move")}>
+        <span>Live-Kamera</span>
+        <button
+          type="button"
+          className="camera-close"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setBox({ ...box, hidden: true })}
+          aria-label="Kamera ausblenden"
+        >
+          ×
+        </button>
+      </div>
+      {/* An MJPEG stream is a plain image element; no player is involved. */}
+      <img className="camera-image" src={streamUrl} alt="" draggable={false} />
+      <div
+        className="camera-resize"
+        onPointerDown={onPointerDown("resize")}
+        aria-hidden="true"
+      />
+    </section>
+  );
+}
 
 function StageProgressBar({
   label,
@@ -820,7 +986,7 @@ function StageResult({
   ranSomething,
 }: {
   apply: SweepApply | null;
-  unit: "K" | "mm";
+  unit: string;
   analyzing?: boolean;
   ranSomething?: boolean;
 }) {
@@ -1545,6 +1711,18 @@ export default function Home() {
     setSaved(false);
   };
 
+  const cameraStreamUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const url = new URL(window.location.href);
+    // Opened directly on the dashboard port, the webcam still lives on the
+    // printer's normal web port, so the relative path has to be re-based.
+    if (url.port === "7126") url.port = "";
+    url.pathname = "/webcam/";
+    url.search = "?action=stream";
+    url.hash = "";
+    return url.toString();
+  }, []);
+
   const returnToMainsail = () => {
     const mainsailUrl = new URL(window.location.href);
     if (mainsailUrl.port === "7126") mainsailUrl.port = "";
@@ -1829,7 +2007,11 @@ export default function Home() {
     : status.quality.state;
 
   return (
-    <main>
+    <>
+      {/* Mounted above the page content so it keeps its viewport position
+          while scrolling, and is never clipped by the layout. */}
+      <CameraWindow streamUrl={cameraStreamUrl} />
+      <main>
       <header className="topbar">
         <div className="brand-area">
           <button
@@ -3258,6 +3440,7 @@ export default function Home() {
         <span>AutoPA · experimentelle Sensorauswertung</span>
         <span>Fail-open: Druckeraktion {status.safety.printerAction}</span>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }

@@ -84,6 +84,22 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- schwebendes Kamerafenster im Dashboard: zeigt den Live-MJPEG-Stream des
+  Druckers, bleibt beim Scrollen an seinem Platz, lässt sich an der
+  Titelleiste verschieben und an der Ecke in der Größe ziehen. Beim Loslassen
+  rastet es magnetisch an nahen Bildschirmrändern ein — beide Achsen
+  unabhängig, sodass ein Eckwurf in der Ecke parkt und ein Randwurf die
+  andere Koordinate behält. Position, Größe und Ausblendzustand überleben
+  einen Neuladen. Auf schmalen Bildschirmen dockt es unten an, statt die
+  Bedienelemente zu verdecken.
+
+- Der Typecheck des Dashboards läuft jetzt als eigenes Skript
+  (`npm run typecheck`). Der Build prüft keine Typen — dadurch waren
+  `running` und `lastAnalysis` in der Oberfläche in Gebrauch, ohne im Typ
+  `SweepStatus` zu existieren. Geprüft wird `app/`; die Cloudflare-Reste aus
+  der Projektvorlage unter `worker/` und `db/` bleiben ausgenommen, weil
+  ihre Typen nicht installiert sind.
+
 - Eine Stufe, die gerade nicht gestartet werden kann, zeigt jetzt den Grund
   statt eines deaktivierten Buttons. Für `.primary-button` gab es überhaupt
   kein `:disabled`-Styling — ein gesperrter Start-Button sah exakt aus wie
@@ -347,6 +363,21 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- floating camera window in the dashboard: shows the printer's live MJPEG
+  stream, keeps its place while the page scrolls, moves by its title bar and
+  resizes from its corner. On release it snaps to nearby viewport edges -
+  each axis independently, so a corner drop parks in the corner while an edge
+  drop keeps its other coordinate. Position, size and hidden state survive a
+  reload. On narrow screens it docks to the bottom instead of covering the
+  controls.
+
+- the dashboard typecheck now exists as its own script (`npm run
+  typecheck`). The build does not check types, which is how `running` and
+  `lastAnalysis` came to be used in the interface without existing on
+  `SweepStatus`. It covers `app/`; the Cloudflare scaffolding under `worker/`
+  and `db/` left from the project template stays excluded because its types
+  are not installed.
 
 - a stage that cannot be started right now shows the reason instead of a
   disabled button. There was no `:disabled` styling for `.primary-button` at
