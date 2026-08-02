@@ -84,6 +84,23 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Messkurve je Stufe: Unter jeder Stufe steht jetzt die Kostenkurve über
+  alle gemessenen Werte statt nur der empfohlenen Zahl. Der beste Wert ist
+  hervorgehoben, Kandidaten ohne genügend verwertbare Zyklen bleiben als
+  Lücke sichtbar. Liegt der beste Wert am Rand des gemessenen Bereichs,
+  weist die Karte darauf hin — das Optimum kann dann außerhalb liegen und
+  der Bereich sollte erweitert werden.
+
+- Fehlerbehebung: Die Ergebniszeile zeigte bei Stufe 1 „Übernommen: ? →
+  0.09 K". Die beiden Runner schreiben unterschiedliche Schlüssel
+  (`previous`/`appliedValue` gegenüber `previousMm`/`appliedMm`); die
+  Oberfläche kannte nur eine Schreibweise.
+
+- `SAVE_CONFIG` ersetzt jetzt den Start-Button einer Stufe, sobald diese
+  einen Wert übernommen hat, statt zusätzlich darunter zu stehen. Der
+  Dialog stellt klar, dass Klipper dabei **alle** aktiven Werte schreibt,
+  nicht nur den dieser Stufe.
+
 - Der Sweep übernimmt eine laufende Live-Aufnahme jetzt selbst, statt den
   Start abzulehnen: Die Vorschau ist ein passiver Recorder, Starten und
   Stoppen senden keinen G-Code. Nach der Auswertung wird sie wieder
@@ -303,6 +320,20 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- per-stage cost curve: each stage now shows the cost across all measured
+  values instead of only the recommended number. The best value is
+  highlighted and candidates without enough usable cycles stay visible as
+  gaps. When the best value sits at the edge of the measured range the card
+  says so - the optimum may lie outside it and the range should be widened.
+
+- bug fix: the result line showed "Übernommen: ? → 0.09 K" for stage 1. The
+  two runners write different keys (`previous`/`appliedValue` versus
+  `previousMm`/`appliedMm`) and the interface only knew one spelling.
+
+- `SAVE_CONFIG` now replaces a stage's start button once that stage applied a
+  value, instead of sitting below it as a second action. The dialog states
+  that Klipper writes **all** active values, not just this stage's.
 
 - a sweep now takes over a running live capture instead of refusing to
   start: the preview is a passive recorder and starting or stopping it sends

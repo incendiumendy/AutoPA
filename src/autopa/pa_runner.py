@@ -10,7 +10,8 @@ always restores the pressure advance that was active when the run started.
 import time
 
 from .adaptive import ARM_PHRASE
-from .apply_policy import apply_decision, validated_apply_bound
+from .apply_policy import (
+    apply_decision, summarize_analysis, validated_apply_bound)
 from .retract_runner import MAX_SCRIPT_LINES, MAX_VALUES, _current_z, \
     _finite, _moonraker_post, _require_homed
 from .sweep import build_sweep, decimal_range, validated_position
@@ -40,6 +41,7 @@ class PaSweepRunner:
         self.last_run = None
         self.last_error = None
         self.last_apply = None
+        self.last_analysis = None
 
     def _moonraker_script(self, script):
         return _moonraker_post(
@@ -88,6 +90,7 @@ class PaSweepRunner:
             "lastRun": self.last_run,
             "lastError": self.last_error,
             "lastApply": self.last_apply,
+            "lastAnalysis": self.last_analysis,
             "printerAction": "none",
         }
 
@@ -209,6 +212,11 @@ class PaSweepRunner:
             "printerAction": "none",
         }
         return self.status()
+
+    def record_analysis(self, result):
+        """Keep the per-candidate cost curve so the card can plot it."""
+        self.last_analysis = summarize_analysis(result)
+        return self.last_analysis
 
     def record_apply_skip(self, reason, source=None):
         self.last_apply = {
