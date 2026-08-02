@@ -333,3 +333,53 @@ class SweepPipelineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnalyseWithoutApplyTest(SweepPipelineTest):
+    """Measuring and applying are separate permissions."""
+
+    def test_speed_sweep_is_analysed_but_never_applied(self):
+        # auto_apply=false used to switch off the capture as well, so the
+        # retraction-speed stage moved the printer and recorded nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(tmp, {
+                "recommendation": {
+                    "swept_variable": "retract_speed",
+                    "retract_speed_mm_s": 30.0,
+                    "apply_automatically": False,
+                },
+            })
+            payload = dict(RETRACT_PAYLOAD)
+            payload.update({"analyze": True, "auto_apply": False})
+            data.run_sweep(payload)
+            self.assertEqual(manager.started, [("standby", "retract-sweep")])
+            self.assertTrue(
+                wait_for(lambda: runner.last_apply is not None))
+            apply = runner.last_apply
+            self.assertTrue(apply["advisory"])
+            self.assertEqual(apply["recommendedSpeedMmS"], 30.0)
+            # Only the sweep itself reached the printer.
+            self.assertEqual(len(scripts), 1)
+
+    def test_a_length_result_is_reported_but_not_sent_when_apply_is_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, scripts, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 0.9}})
+            payload = dict(RETRACT_PAYLOAD)
+            payload.update({"analyze": True, "auto_apply": False})
+            data.run_sweep(payload)
+            self.assertTrue(
+                wait_for(lambda: runner.last_apply is not None))
+            self.assertFalse(runner.last_apply["applied"])
+            self.assertTrue(runner.last_apply["advisory"])
+            self.assertEqual(len(scripts), 1)
+
+    def test_analysis_can_still_be_switched_off_entirely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data, runner, manager, _, _ = self.make_data(
+                tmp, {"recommendation": {"retract_length_mm": 0.9}})
+            payload = dict(RETRACT_PAYLOAD)
+            payload["analyze"] = False
+            data.run_sweep(payload)
+            self.assertEqual(manager.started, [])
+            self.assertIsNone(runner.last_apply)

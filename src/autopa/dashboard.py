@@ -323,7 +323,11 @@ class DashboardData:
         """Auto-start a capture so the sweep can be analyzed afterwards."""
         if not isinstance(payload, dict):
             return False
-        if not payload.get("auto_apply", True):
+        # analyze and auto_apply are separate questions. Conflating them made
+        # the retraction-speed stage - which must not apply its result
+        # automatically - skip its capture entirely, so it moved the printer
+        # and recorded nothing.
+        if not payload.get("analyze", payload.get("auto_apply", True)):
             return False
         if self._sweep_pipeline_busy:
             # Stages run back to back but the post-sweep pipeline keeps
@@ -395,9 +399,9 @@ class DashboardData:
         runner = (
             self.sweep_runner if kind == "retract" else self.pa_sweep_runner)
         last_run = runner.last_run or {}
-        if not last_run.get("autoApply"):
+        if not last_run.get("analyze", last_run.get("autoApply")):
             if started_capture:
-                self._stop_started_capture(True, "auto_apply_disabled")
+                self._stop_started_capture(True, "analysis_disabled")
             return
         duration = last_run.get("estimatedDurationS") or 0.0
         try:
@@ -481,6 +485,11 @@ class DashboardData:
                 # good result under retract_speed_mm_s, but this pipeline only
                 # knows how to send a length. Report the value instead of
                 # discarding it as "no recommendation", which would be false.
+                runner.record_advisory(recommendation, source=source)
+                return
+            if not (runner.last_run or {}).get("autoApply", True):
+                # Analysed on purpose, applied on purpose - the retraction
+                # speed is measured but never sent by the pipeline.
                 runner.record_advisory(recommendation, source=source)
                 return
             runner.apply_recommendation(recommendation[key], source=source)

@@ -237,6 +237,9 @@ class RetractSweepRunner:
             values, retract_values = self._validated_values(payload)
             speed_values = None
         auto_apply = bool(payload.get("auto_apply", True))
+        # Capture and analysis are worth doing even when the
+        # result may not be applied automatically.
+        analyze = bool(payload.get("analyze", auto_apply))
         apply_bound = validated_apply_bound(
             payload.get("apply_bound"), "retract")
         position = validated_position(
@@ -281,6 +284,7 @@ class RetractSweepRunner:
             "filamentLengthMm": plan["filament_length_mm"],
             "scriptLines": len(lines),
             "autoApply": auto_apply,
+            "analyze": analyze,
             "applyBoundMm": apply_bound,
         }
         self.last_error = None

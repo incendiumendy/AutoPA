@@ -2018,9 +2018,11 @@ export default function Home() {
                 v_step: Number(speedVStep),
                 cycles: Number(sweepCycles),
                 prime_e: Number(primeE),
-                // A speed result is reported as retract_speed_mm_s, which the
-                // apply pipeline does not know how to send, so it would skip
-                // anyway. Saying so explicitly keeps the intent readable.
+                // Measure and analyse, but never apply: a speed is reported
+                // as retract_speed_mm_s, which the apply path cannot send.
+                // These have to be separate flags - one switch for both made
+                // this stage skip its capture and record nothing at all.
+                analyze: true,
                 auto_apply: false,
               }
             : {
