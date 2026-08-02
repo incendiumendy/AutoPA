@@ -84,6 +84,11 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Eine Stufe, die gerade nicht gestartet werden kann, zeigt jetzt den Grund
+  statt eines deaktivierten Buttons. Für `.primary-button` gab es überhaupt
+  kein `:disabled`-Styling — ein gesperrter Start-Button sah exakt aus wie
+  ein bereiter und lud weiter zum Klicken ein. Das gilt für alle drei Stufen.
+
 - Fortschrittsbalken je Stufe statt eines wirkungslosen Start-Buttons:
   Während des Sweeps und während der Auswertung zeigt die Stufe einen
   Balken mit Prozent, Restzeit und benanntem Schritt (Aufnahme abschließen,
@@ -342,6 +347,11 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- a stage that cannot be started right now shows the reason instead of a
+  disabled button. There was no `:disabled` styling for `.primary-button` at
+  all, so a blocked start button looked exactly like a ready one and kept
+  inviting the click. This applies to all three stages.
 
 - per-stage progress bar instead of an inert start button: while the sweep
   runs and while the analysis works, the stage shows a bar with percentage,

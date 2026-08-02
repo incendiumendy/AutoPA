@@ -704,6 +704,7 @@ function StageAction({
   saveSummary,
   onSaveConfirm,
   onSaveCancel,
+  blockedReason,
 }: {
   applied: boolean;
   busy: boolean;
@@ -721,6 +722,7 @@ function StageAction({
   saveSummary?: string;
   onSaveConfirm?: () => void;
   onSaveCancel?: () => void;
+  blockedReason?: string | null;
 }) {
   if (running?.active) {
     return (
@@ -788,6 +790,13 @@ function StageAction({
           Nochmal messen
         </button>
       </div>
+    );
+  }
+  if (blockedReason) {
+    return (
+      <p className="stage-blocked">
+        <strong>Gesperrt.</strong> {blockedReason}
+      </p>
     );
   }
   return (
@@ -1761,6 +1770,18 @@ export default function Home() {
   const analysisBusy = Boolean(
     status.sweep.analysis?.busy || status.paSweep.analysis?.busy,
   );
+  const sweepRunning = Boolean(
+    status.sweep.running?.active || status.paSweep.running?.active,
+  );
+  // Why an idle stage cannot be started right now. Shown instead of the
+  // start button: a disabled button still looks like an invitation.
+  const stageBlockedReason = analysisBusy
+    ? "Eine andere Stufe wird gerade ausgewertet. Warte, bis dort das Ergebnis steht — sonst vermischen sich die Messungen."
+    : sweepRunning
+      ? "Ein Sweep läuft gerade. Warte, bis er fertig ist."
+      : status.printer.printState !== "standby"
+        ? `Der Drucker ist „${status.printer.printState || "unbekannt"}“. Die Stufen laufen nur im Standby.`
+        : null;
 
   const paConfirmSummary = useMemo(() => {
     const values = countSweepValues(paKStart, paKStop, paKStep);
@@ -2189,6 +2210,7 @@ export default function Home() {
                   saveSummary={saveConfirmSummary}
                   onSaveConfirm={postSaveConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
                   running={status.paSweep.running}
                   analyzing={Boolean(
                     status.paSweep.analysis?.busy && status.paSweep.analysis?.stage === "pa"
@@ -2333,6 +2355,7 @@ export default function Home() {
                   saveSummary={saveConfirmSummary}
                   onSaveConfirm={postSaveConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
                   running={status.sweep.running}
                   analyzing={Boolean(
                     status.sweep.analysis?.busy &&
@@ -2514,6 +2537,7 @@ export default function Home() {
                   saveSummary={saveConfirmSummary}
                   onSaveConfirm={postSaveConfig}
                   onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
                   running={status.sweep.running}
                   analyzing={Boolean(
                     status.sweep.analysis?.busy &&

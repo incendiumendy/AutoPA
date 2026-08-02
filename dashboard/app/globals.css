@@ -1615,3 +1615,32 @@ footer {
   font-size: 9px;
   line-height: 1.5;
 }
+
+/* A stage that cannot be started right now says why, instead of showing a
+   disabled button. There was no :disabled styling for the primary button at
+   all, so a blocked stage looked exactly like a ready one. */
+.stage-blocked {
+  margin: 8px 0 0;
+  border-left: 2px solid var(--muted);
+  padding: 3px 0 3px 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.stage-blocked strong {
+  color: var(--text);
+}
+
+.primary-button:disabled,
+.danger-button:disabled {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.primary-button:disabled:hover,
+.danger-button:disabled:hover {
+  background: rgba(255, 255, 255, 0.03);
+}

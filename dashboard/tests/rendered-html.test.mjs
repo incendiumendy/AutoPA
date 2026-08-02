@@ -210,6 +210,10 @@ test("save-config is opt-in, standby only and states the consequence", async () 
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
   );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
 
   // AutoPA is runtime-only everywhere else; this is the one deliberate
   // exception, so the prompt must name the restart and the values.
@@ -234,6 +238,14 @@ test("save-config is opt-in, standby only and states the consequence", async () 
   assert.match(action, /if \(running\?\.active\)/);
   assert.match(action, /if \(analyzing\)/);
   assert.match(action, /if \(applied\)/);
+  // A stage blocked by another stage's work must not keep offering its
+  // start button: there was no :disabled styling for the primary button, so
+  // a blocked stage looked exactly like a ready one.
+  assert.match(action, /if \(blockedReason\)/);
+  assert.match(page, /blockedReason=\{stageBlockedReason\}/);
+  assert.match(page, /Eine andere Stufe wird gerade ausgewertet/);
+  assert.match(page, /Ein Sweep läuft gerade/);
+  assert.match(css, /\.primary-button:disabled/);
   const stageUse = page.slice(page.indexOf("<StageAction"));
   assert.match(stageUse.slice(0, 700), /printState !== "standby"/);
 
