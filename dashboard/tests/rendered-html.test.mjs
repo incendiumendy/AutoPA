@@ -400,3 +400,28 @@ test("the camera window floats, snaps to edges and survives a reload", async () 
   const move = page.slice(page.indexOf("const onPointerMove"));
   assert.doesNotMatch(move.slice(0, 700), /snapCamBox/);
 });
+
+test("a missing result names its cause instead of blaming a safety gate", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // "no_recommendation" mostly means the cycles were rejected, not that a
+  // gate refused. On the printer the quality gate passed while 25 of 45
+  // cycles fell below the noise floor, and the card still claimed the
+  // analysis was "fail-closed und schweigt lieber".
+  assert.match(page, /function diagnoseNoResult/);
+  assert.match(page, /CYCLE_REJECTIONS/);
+  assert.match(page, /step_amplitude_below_3x_baseline_mad/);
+  assert.match(page, /pressure_amplitude_below_3x_noise_mad/);
+
+  // The concrete numbers, the threshold, and that the gate is not to blame.
+  assert.match(page, /Messzyklen waren nicht verwertbar/);
+  assert.match(page, /mindestens drei Werte/);
+  assert.match(page, /keine Sicherheitssperre/);
+
+  // Every stage passes it.
+  const wired = page.match(/diagnosis=\{diagnoseNoResult\(/g) ?? [];
+  assert.equal(wired.length, 3);
+});
