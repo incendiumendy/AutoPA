@@ -550,6 +550,22 @@ type StageAnalysis = {
   best: number | null;
   bestAtRangeEdge: boolean;
   qualityGatePassed: boolean;
+  cyclesTotal?: number;
+  cyclesIncluded?: number;
+  rejectedReasons?: { reason: string; count: number }[];
+  rankableValues?: number;
+};
+
+// Klipper-side rejection reasons in plain language. "No result" on its own
+// reads as a deliberate safety refusal, which it usually is not: the quality
+// gate can pass while the measurement itself was simply too weak to rank.
+const CYCLE_REJECTIONS: Record<string, string> = {
+  step_amplitude_below_3x_baseline_mad:
+    "Der Drucksprung beim Extrudieren war kleiner als das dreifache Grundrauschen — der Sensor konnte die Bewegung nicht vom Rauschen trennen.",
+  pressure_amplitude_below_3x_noise_mad:
+    "Der Druckunterschied war kleiner als das dreifache Grundrauschen — meist eine leergelaufene Düse.",
+  dwell_too_short:
+    "Die Wartezeit nach dem Rückzug war zu kurz für eine Restdruckmessung.",
 };
 
 // The cost curve behind the recommendation. A bare number reads as
@@ -988,16 +1004,61 @@ function StageAction({
   );
 }
 
+// Turn "no_recommendation" into something the operator can act on. The
+// pipeline reports it whenever the ranking produced nothing, which mostly
+// means the cycles were rejected rather than that a safety gate refused.
+function diagnoseNoResult(
+  apply: SweepApply | null,
+  analysis: StageAnalysis | null | undefined,
+): string | null {
+  if (!apply || apply.applied || apply.reason !== "no_recommendation") {
+    return null;
+  }
+  if (!analysis) return null;
+  const total = analysis.cyclesTotal ?? 0;
+  const kept = analysis.cyclesIncluded ?? 0;
+  const worst = analysis.rejectedReasons?.[0];
+  const parts: string[] = [];
+  if (total > 0) {
+    parts.push(
+      `${total - kept} von ${total} Messzyklen waren nicht verwertbar.`,
+    );
+  }
+  if (worst) {
+    parts.push(
+      CYCLE_REJECTIONS[worst.reason] ??
+        `Häufigster Grund: ${worst.reason} (${worst.count}×).`,
+    );
+  }
+  // Naming the threshold makes the outcome checkable against the chart.
+  parts.push(
+    "Zum Vergleichen braucht die Auswertung mindestens drei Werte mit je" +
+      " mindestens drei verwertbaren Zyklen.",
+  );
+  if (analysis.qualityGatePassed) {
+    parts.push(
+      "Das Qualitätstor hat bestanden — es ist also keine Sicherheitssperre," +
+        " sondern ein zu schwaches Messsignal.",
+    );
+  }
+  parts.push(
+    "Mehr Zyklen je Wert, eine heißere Düse oder mehr Vorfüllen helfen meist.",
+  );
+  return parts.join(" ");
+}
+
 function StageResult({
   apply,
   unit,
   analyzing,
   ranSomething,
+  diagnosis,
 }: {
   apply: SweepApply | null;
   unit: string;
   analyzing?: boolean;
   ranSomething?: boolean;
+  diagnosis?: string | null;
 }) {
   // Three distinct states, because "nothing shown" used to mean all of them:
   // never run, still analyzing, and finished.
@@ -1009,6 +1070,13 @@ function StageResult({
       <p className="stage-result tone-warn">
         <strong>Kein Ergebnis.</strong> Die Stufe lief, hat aber nichts
         Auswertbares geliefert.
+      </p>
+    );
+  }
+  if (result.tone === "warn" && diagnosis) {
+    return (
+      <p className="stage-result tone-warn">
+        <strong>Kein Ergebnis:</strong> {diagnosis}
       </p>
     );
   }
@@ -2429,6 +2497,10 @@ export default function Home() {
               <StageResult
                 apply={status.paSweep.lastApply}
                 unit="K"
+                diagnosis={diagnoseNoResult(
+                  status.paSweep.lastApply,
+                  status.paSweep.lastAnalysis,
+                )}
                 analyzing={
                   status.paSweep.analysis?.busy &&
                   status.paSweep.analysis?.stage === "pa"
@@ -2602,6 +2674,10 @@ export default function Home() {
               <StageResult
                 apply={status.sweep.lastApplyByMode?.length ?? null}
                 unit="mm"
+                diagnosis={diagnoseNoResult(
+                  status.sweep.lastApplyByMode?.length ?? null,
+                  status.sweep.lastAnalysisByMode?.length,
+                )}
                 analyzing={
                   status.sweep.analysis?.busy &&
                   status.sweep.analysis?.stage === "retract" &&
@@ -2754,6 +2830,10 @@ export default function Home() {
               <StageResult
                 apply={status.sweep.lastApplyByMode?.speed ?? null}
                 unit="mm/s"
+                diagnosis={diagnoseNoResult(
+                  status.sweep.lastApplyByMode?.speed ?? null,
+                  status.sweep.lastAnalysisByMode?.speed,
+                )}
                 analyzing={
                   status.sweep.analysis?.busy &&
                   status.sweep.analysis?.stage === "retract" &&

@@ -84,6 +84,16 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- „Kein auswertbares Ergebnis" nennt jetzt die Ursache. Die Meldung behauptete
+  „die Analyse ist fail-closed und schweigt lieber" — das klingt nach einer
+  Sicherheitsentscheidung, ist aber meist keine: Auf dem validierten Drucker
+  hatte das Qualitätstor bestanden, während 25 von 45 Messzyklen unter der
+  Rauschgrenze lagen (`step_amplitude_below_3x_baseline_mad`) und deshalb kein
+  einziger Wert rankbar war. Die Karte nennt jetzt die Zahl der verworfenen
+  Zyklen, den häufigsten Grund im Klartext, die Schwelle (mindestens drei
+  Werte mit je drei verwertbaren Zyklen) und ob das Qualitätstor bestanden
+  hat.
+
 - `SAVE_CONFIG` wurde wieder entfernt: Klipper kann Pressure Advance und
   Firmware-Rückzug damit gar nicht sichern. In den Autosave-Block gelangt nur,
   was ein Modul über `configfile.set()` anmeldet (PID, Bed Mesh,
@@ -377,6 +387,15 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- "no usable result" now names its cause. The message claimed "the analysis
+  is fail-closed and would rather stay silent", which reads as a safety
+  decision and usually is not: on the validated printer the quality gate had
+  passed while 25 of 45 cycles fell below the noise floor
+  (`step_amplitude_below_3x_baseline_mad`), leaving nothing rankable. The card
+  now names how many cycles were discarded, the most common reason in plain
+  language, the threshold (at least three values keeping at least three
+  cycles each) and whether the quality gate passed.
 
 - `SAVE_CONFIG` removed again: Klipper cannot store pressure advance or
   firmware retraction with it. Only what a module registers through

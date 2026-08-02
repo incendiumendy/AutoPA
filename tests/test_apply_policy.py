@@ -122,3 +122,59 @@ class SummarizeAnalysisTest(unittest.TestCase):
         self.assertIsNone(summarize_analysis(None))
         self.assertIsNone(summarize_analysis({}))
         self.assertIsNone(summarize_analysis({"per_k": []}))
+
+
+class NoResultDiagnosisTest(unittest.TestCase):
+    """"No result" must name a cause, not imply a safety refusal."""
+
+    def dataset(self):
+        # Shaped like the real PA analysis that produced no ranking: the
+        # quality gate passed, but most cycles were below the noise floor.
+        return {
+            "quality_gate_passed": True,
+            "per_k": [
+                {
+                    "k": 0.01 * (index + 1),
+                    "cost": None,
+                    "cycles_included": 2,
+                    "cycles_total": 5,
+                    "cycles": (
+                        [{"included": True}] * 2
+                        + [{
+                            "included": False,
+                            "reason": "step_amplitude_below_3x_baseline_mad",
+                        }] * 3
+                    ),
+                }
+                for index in range(9)
+            ],
+        }
+
+    def test_counts_and_names_the_rejections(self):
+        summary = summarize_analysis(self.dataset())
+        self.assertEqual(summary["cyclesTotal"], 45)
+        self.assertEqual(summary["cyclesIncluded"], 18)
+        self.assertEqual(
+            summary["rejectedReasons"][0],
+            {"reason": "step_amplitude_below_3x_baseline_mad", "count": 27})
+        # Nothing was rankable, which is why the pipeline had no
+        # recommendation to report.
+        self.assertEqual(summary["rankableValues"], 0)
+        # And it was not the safety gate: that passed.
+        self.assertTrue(summary["qualityGatePassed"])
+
+    def test_a_healthy_run_reports_no_rejections(self):
+        summary = summarize_analysis({
+            "quality_gate_passed": True,
+            "per_k": [
+                {"k": 0.02, "cost": 0.3, "cycles_included": 5,
+                 "cycles_total": 5, "cycles": [{"included": True}] * 5},
+                {"k": 0.04, "cost": 0.1, "cycles_included": 5,
+                 "cycles_total": 5, "cycles": [{"included": True}] * 5},
+                {"k": 0.06, "cost": 0.4, "cycles_included": 5,
+                 "cycles_total": 5, "cycles": [{"included": True}] * 5},
+            ],
+        })
+        self.assertEqual(summary["rejectedReasons"], [])
+        self.assertEqual(summary["cyclesIncluded"], summary["cyclesTotal"])
+        self.assertEqual(summary["rankableValues"], 3)

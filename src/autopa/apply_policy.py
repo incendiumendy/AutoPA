@@ -101,6 +101,22 @@ def summarize_analysis(result):
         })
     if not points:
         return None
+    # Why cycles were thrown away. Without this the card could only say
+    # "no result", which reads as a deliberate safety refusal even when the
+    # quality gate passed and the real cause was a weak pressure signal the
+    # operator can do something about.
+    rejected = {}
+    for entry in entries:
+        for cycle in entry.get("cycles") or []:
+            if cycle.get("included"):
+                continue
+            reason = cycle.get("reason") or "unknown"
+            rejected[reason] = rejected.get(reason, 0) + 1
+    cycles_total = sum(
+        (entry.get("cycles_total") or 0) for entry in entries)
+    cycles_included = sum(
+        (entry.get("cycles_included") or 0) for entry in entries)
+
     ranked = [p for p in points if p["cost"] is not None]
     best = min(ranked, key=lambda p: p["cost"])["value"] if ranked else None
     edges = {points[0]["value"], points[-1]["value"]}
@@ -113,4 +129,15 @@ def summarize_analysis(result):
         # tested window, so the range should be widened and re-run.
         "bestAtRangeEdge": best is not None and best in edges,
         "qualityGatePassed": bool(result.get("quality_gate_passed")),
+        "cyclesTotal": cycles_total,
+        "cyclesIncluded": cycles_included,
+        # Most common rejection first, so the card can name the one that
+        # actually cost the measurement its result.
+        "rejectedReasons": sorted(
+            ({"reason": reason, "count": count}
+             for reason, count in rejected.items()),
+            key=lambda item: -item["count"]),
+        # The ranking needs at least three values that each kept at least
+        # three cycles; below that there is nothing to compare.
+        "rankableValues": len(ranked),
     }
