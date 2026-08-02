@@ -140,4 +140,40 @@ def summarize_analysis(result):
         # The ranking needs at least three values that each kept at least
         # three cycles; below that there is nothing to compare.
         "rankableValues": len(ranked),
+        "signal": _signal_verdict(
+            cycles_total, cycles_included, len(ranked), result),
+    }
+
+
+# Below this share of usable cycles a result rests on thin evidence: it may
+# still rank, but a repeat run can easily name a different winner. Observed
+# on the validated printer, where three runs of the same sweep recommended
+# 0.07, 0.03 and 0.09 in turn.
+WEAK_SIGNAL_RATIO = 0.7
+MIN_RANKABLE_VALUES = 3
+
+
+def _signal_verdict(cycles_total, cycles_included, rankable, result):
+    """How much the measurement itself can be trusted."""
+    if not cycles_total:
+        return {"state": "unknown", "keptRatio": None, "repeatAdvised": False}
+    ratio = cycles_included / float(cycles_total)
+    recommendation = result.get("recommendation") or {}
+    gap = recommendation.get("cost_gap_to_second_best")
+    if rankable < MIN_RANKABLE_VALUES:
+        state = "insufficient"
+    elif ratio < WEAK_SIGNAL_RATIO:
+        state = "weak"
+    elif gap is not None and gap < 0.05:
+        # A winner this close to the runner-up is inside the noise of a
+        # single run even when every cycle was usable.
+        state = "close"
+    else:
+        state = "ok"
+    return {
+        "state": state,
+        "keptRatio": round(ratio, 3),
+        "costGapToSecondBest": gap,
+        # Pooling several runs is what analyze_combined_datasets exists for.
+        "repeatAdvised": state in ("insufficient", "weak", "close"),
     }

@@ -1773,3 +1773,43 @@ footer {
   line-height: 1.6;
   white-space: pre;
 }
+
+/* A weak measurement that still ranks is worse than one that fails: the
+   winner then changes from run to run while looking settled. */
+.signal-notice {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 189, 105, 0.34);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 189, 105, 0.07);
+}
+
+.signal-notice p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.signal-notice p:last-child {
+  margin-bottom: 0;
+}
+
+.signal-notice-head {
+  color: var(--amber) !important;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.signal-notice strong {
+  color: var(--text);
+}
+
+.signal-notice-hint code {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}

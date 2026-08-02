@@ -554,6 +554,12 @@ type StageAnalysis = {
   cyclesIncluded?: number;
   rejectedReasons?: { reason: string; count: number }[];
   rankableValues?: number;
+  signal?: {
+    state: "ok" | "close" | "weak" | "insufficient" | "unknown";
+    keptRatio: number | null;
+    costGapToSecondBest?: number | null;
+    repeatAdvised: boolean;
+  };
 };
 
 // Klipper-side rejection reasons in plain language. "No result" on its own
@@ -1045,6 +1051,54 @@ function diagnoseNoResult(
     "Mehr Zyklen je Wert, eine heißere Düse oder mehr Vorfüllen helfen meist.",
   );
   return parts.join(" ");
+}
+
+// How much a single run can be trusted. A weak signal still ranks sometimes,
+// which is worse than failing outright: the winner then changes from run to
+// run. On the validated printer three runs of the same sweep recommended
+// 0.07, 0.03 and 0.09 in turn, all reported as if settled.
+function SignalNotice({
+  analysis,
+}: {
+  analysis: StageAnalysis | null | undefined;
+}) {
+  const signal = analysis?.signal;
+  if (!signal || !signal.repeatAdvised) return null;
+  const percent =
+    signal.keptRatio !== null && signal.keptRatio !== undefined
+      ? Math.round(signal.keptRatio * 100)
+      : null;
+
+  const headline =
+    signal.state === "insufficient"
+      ? "Signalproblem — kein belastbares Ergebnis"
+      : signal.state === "weak"
+        ? "Signalproblem — Ergebnis auf dünner Datenbasis"
+        : "Knappes Ergebnis — kaum Abstand zum Zweitbesten";
+
+  const why =
+    signal.state === "close"
+      ? `Der beste Wert liegt nur ${signal.costGapToSecondBest?.toFixed(3) ?? "?"} vor dem nächsten. Das ist innerhalb dessen, was ein einzelner Lauf streuen kann.`
+      : `Nur ${percent ?? "?"} % der Messzyklen waren verwertbar. Der Sensor konnte den Druckverlauf zu selten sauber vom Rauschen trennen.`;
+
+  return (
+    <div className="signal-notice">
+      <p className="signal-notice-head">{headline}</p>
+      <p>{why}</p>
+      <p>
+        <strong>Miss mehrmals.</strong> Ein einzelner Lauf mit schwachem
+        Signal nennt bei jeder Wiederholung einen anderen Gewinner. Erst wenn
+        zwei bis drei Durchgänge in dieselbe Richtung zeigen, ist der Wert
+        belastbar.
+      </p>
+      <p className="signal-notice-hint">
+        Stärkeres Signal bekommst du mit mehr Zyklen je Wert, einer heißeren
+        Düse und mehr Vorfüllen. Mehrere geprüfte Aufnahmen lassen sich auch
+        gemeinsam auswerten:{" "}
+        <code>python3 -m autopa.analyze &lt;datensatz-1&gt; &lt;datensatz-2&gt;</code>
+      </p>
+    </div>
+  );
 }
 
 function StageResult({
@@ -2494,6 +2548,7 @@ export default function Home() {
                 analysis={status.paSweep.lastAnalysis}
                 unit="K"
               />
+              <SignalNotice analysis={status.paSweep.lastAnalysis} />
               <StageResult
                 apply={status.paSweep.lastApply}
                 unit="K"
@@ -2671,6 +2726,7 @@ export default function Home() {
                 analysis={status.sweep.lastAnalysisByMode?.length}
                 unit="mm"
               />
+              <SignalNotice analysis={status.sweep.lastAnalysisByMode?.length} />
               <StageResult
                 apply={status.sweep.lastApplyByMode?.length ?? null}
                 unit="mm"
@@ -2827,6 +2883,7 @@ export default function Home() {
                 analysis={status.sweep.lastAnalysisByMode?.speed}
                 unit="mm/s"
               />
+              <SignalNotice analysis={status.sweep.lastAnalysisByMode?.speed} />
               <StageResult
                 apply={status.sweep.lastApplyByMode?.speed ?? null}
                 unit="mm/s"

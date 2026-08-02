@@ -84,6 +84,17 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Signalbewertung je Lauf mit Empfehlung zur Wiederholung. Ein schwaches
+  Signal, das trotzdem ein Ergebnis liefert, ist gefährlicher als eins, das
+  gar keines liefert: Der Gewinner wechselt dann von Lauf zu Lauf, sieht aber
+  fertig aus. Fünf Läufe auf dem validierten Drucker ergaben nacheinander
+  0,01 / 0,09 / 0,03 / 0,09 und einmal gar nichts. Die Karte meldet jetzt
+  „Signalproblem", wenn zu wenige Zyklen verwertbar waren, und „Knappes
+  Ergebnis", wenn der Abstand zum Zweitbesten innerhalb der Streuung eines
+  einzelnen Laufs liegt — beides mit dem Rat, zwei bis drei Durchgänge zu
+  fahren, und dem Hinweis auf `autopa.analyze` zum gemeinsamen Auswerten
+  mehrerer Aufnahmen.
+
 - „Kein auswertbares Ergebnis" nennt jetzt die Ursache. Die Meldung behauptete
   „die Analyse ist fail-closed und schweigt lieber" — das klingt nach einer
   Sicherheitsentscheidung, ist aber meist keine: Auf dem validierten Drucker
@@ -387,6 +398,15 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- per-run signal verdict with a repeat recommendation. A weak signal that
+  still produces a result is more dangerous than one that produces none: the
+  winner then changes from run to run while looking settled. Five runs on the
+  validated printer produced 0.01, 0.09, 0.03, 0.09 and no result at all. The
+  card now reports "Signalproblem" when too few cycles were usable and
+  "Knappes Ergebnis" when the margin to the runner-up is inside single-run
+  scatter - both advising two or three runs, and pointing at
+  `autopa.analyze` for pooling several captures.
 
 - "no usable result" now names its cause. The message claimed "the analysis
   is fail-closed and would rather stay silent", which reads as a safety

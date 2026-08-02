@@ -178,3 +178,58 @@ class NoResultDiagnosisTest(unittest.TestCase):
         self.assertEqual(summary["rejectedReasons"], [])
         self.assertEqual(summary["cyclesIncluded"], summary["cyclesTotal"])
         self.assertEqual(summary["rankableValues"], 3)
+
+
+class SignalVerdictTest(unittest.TestCase):
+    """A weak run that still ranks is the dangerous case, not the failed one."""
+
+    def run_with(self, kept, total, values=5, gap=0.2):
+        per_value = []
+        for index in range(values):
+            per_value.append({
+                "swept_value": 0.01 * (index + 1),
+                "cost": 0.1 * (index + 1),
+                "cycles_included": kept,
+                "cycles_total": total,
+                "cycles": (
+                    [{"included": True}] * kept
+                    + [{"included": False, "reason": "weak"}] * (total - kept)
+                ),
+            })
+        return {
+            "quality_gate_passed": True,
+            "per_value": per_value,
+            "recommendation": {"cost_gap_to_second_best": gap},
+        }
+
+    def test_a_clean_run_needs_no_repeat(self):
+        signal = summarize_analysis(self.run_with(5, 5))["signal"]
+        self.assertEqual(signal["state"], "ok")
+        self.assertFalse(signal["repeatAdvised"])
+        self.assertEqual(signal["keptRatio"], 1.0)
+
+    def test_mostly_rejected_cycles_are_called_weak(self):
+        # Matches the printer: 27 of 45 cycles kept, a winner was still
+        # reported, and the next run named a different one.
+        signal = summarize_analysis(self.run_with(3, 5))["signal"]
+        self.assertEqual(signal["state"], "weak")
+        self.assertTrue(signal["repeatAdvised"])
+
+    def test_too_few_rankable_values_is_insufficient(self):
+        signal = summarize_analysis(self.run_with(5, 5, values=2))["signal"]
+        self.assertEqual(signal["state"], "insufficient")
+        self.assertTrue(signal["repeatAdvised"])
+
+    def test_a_close_winner_is_flagged_even_on_a_clean_run(self):
+        # Every cycle usable, but the margin is inside single-run scatter.
+        signal = summarize_analysis(self.run_with(5, 5, gap=0.01))["signal"]
+        self.assertEqual(signal["state"], "close")
+        self.assertTrue(signal["repeatAdvised"])
+
+    def test_no_cycles_at_all_stays_unknown(self):
+        signal = summarize_analysis({
+            "quality_gate_passed": True,
+            "per_value": [{"swept_value": 0.2, "cost": 0.1}],
+        })["signal"]
+        self.assertEqual(signal["state"], "unknown")
+        self.assertFalse(signal["repeatAdvised"])
