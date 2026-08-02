@@ -1757,3 +1757,19 @@ footer {
     display: none;
   }
 }
+
+/* Config lines to paste. Klipper cannot persist pressure advance or firmware
+   retraction itself, so this is the only way these values survive a restart. */
+.config-snippet {
+  overflow-x: auto;
+  margin: 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: pre;
+}

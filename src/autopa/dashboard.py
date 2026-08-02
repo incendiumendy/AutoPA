@@ -287,19 +287,6 @@ class DashboardData:
         self._schedule_post_sweep("retract", started_capture)
         return status
 
-    def save_config(self, payload):
-        """Persist the current runtime values to printer.cfg.
-
-        AutoPA otherwise never writes the config: every apply is runtime-only
-        so a Klipper restart returns the machine to its own settings. This is
-        the deliberate exception, requested explicitly per call, and it goes
-        through the retract runner because that is where the printer command
-        lock and the standby check already live.
-        """
-        if not self.sweep_runner:
-            raise RuntimeError("sweep runner disabled")
-        return self.sweep_runner.save_config(payload)
-
     def pa_sweep_status(self):
         status = self._pa_sweep_status()
         status["analysis"] = self.analysis_status()
@@ -769,8 +756,7 @@ def make_handler(data, static_dir):
                      "/api/capture/start",
                      "/api/capture/stop",
                      "/api/filter/config",
-                     "/api/sweep/run", "/api/pa-sweep/run",
-                     "/api/save-config"}:
+                     "/api/sweep/run", "/api/pa-sweep/run"}:
                 self._send_json({
                     "error": "unsupported endpoint",
                     "printer_action": "none",
@@ -797,8 +783,6 @@ def make_handler(data, static_dir):
                     result = data.run_sweep(payload)
                 elif request_path == "/api/pa-sweep/run":
                     result = data.run_pa_sweep(payload)
-                elif request_path == "/api/save-config":
-                    result = data.save_config(payload)
                 else:
                     result = data.update_filter(payload)
                 self._send_json(result)

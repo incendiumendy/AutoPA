@@ -84,6 +84,20 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- `SAVE_CONFIG` wurde wieder entfernt: Klipper kann Pressure Advance und
+  Firmware-Rückzug damit gar nicht sichern. In den Autosave-Block gelangt nur,
+  was ein Modul über `configfile.set()` anmeldet (PID, Bed Mesh,
+  Probe-Offsets, Input Shaper) — `extruder.py` und `firmware_retraction.py`
+  tun das nicht. Der Befehl startete Klipper neu, verwarf dabei genau den
+  Laufzeitwert, den er sichern sollte, und schrieb nichts. Stattdessen zeigt
+  jede Stufe die Konfigurationszeilen zum Eintragen, mit Kopierknopf.
+
+- Beschriftung der Messkurve korrigiert: Die Kopfzeile sagte „niedriger ist
+  besser" (das gilt für den internen Kostenwert), während die Balken die
+  Güte zeigen — der beste Wert hat den höchsten Balken. Zwei gegenteilige
+  Aussagen über dasselbe Bild. Jetzt „höherer Balken ist besser", mit dem
+  Kostenwert des Gewinners im Text.
+
 - schwebendes Kamerafenster im Dashboard: zeigt den Live-MJPEG-Stream des
   Druckers, bleibt beim Scrollen an seinem Platz, lässt sich an der
   Titelleiste verschieben und an der Ecke in der Größe ziehen. Beim Loslassen
@@ -363,6 +377,19 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- `SAVE_CONFIG` removed again: Klipper cannot store pressure advance or
+  firmware retraction with it. Only what a module registers through
+  `configfile.set()` reaches the autosave block (PID, bed mesh, probe
+  offsets, input shaper), and neither `extruder.py` nor
+  `firmware_retraction.py` does. The command restarted Klipper, discarding
+  the very runtime value it was meant to keep, and wrote nothing. Each stage
+  now shows the configuration lines to paste, with a copy button.
+
+- cost-curve label corrected: the header said "lower is better" - true of the
+  internal cost value - while the bars show quality, so the best value has
+  the tallest bar. Two opposite claims about the same picture. It now reads
+  "taller bar is better" and names the winner's cost.
 
 - floating camera window in the dashboard: shows the printer's live MJPEG
   stream, keeps its place while the page scrolls, moves by its title bar and

@@ -125,7 +125,6 @@ class RetractSweepRunner:
         # stage erased the earlier one's result and its card went blank.
         self.last_apply_by_mode = {"length": None, "speed": None}
         self.last_run_by_mode = {"length": None, "speed": None}
-        self.last_save = None
         self.active_mode = "length"
 
     def _moonraker_script(self, script):
@@ -202,7 +201,6 @@ class RetractSweepRunner:
             "lastAnalysisByMode": self.last_analysis_by_mode,
             "lastApplyByMode": self.last_apply_by_mode,
             "lastRunByMode": self.last_run_by_mode,
-            "lastSave": self.last_save,
             "printerAction": "none",
         }
 
@@ -336,37 +334,6 @@ class RetractSweepRunner:
             "at": applied_at,
             "printerAction": "set_retraction_runtime_only",
         })
-        return self.status()
-
-    def save_config(self, payload, printer_status=None):
-        """Persist the current runtime values through Klipper's SAVE_CONFIG.
-
-        This is the one place AutoPA writes to printer.cfg, and it is opt-in
-        per call. SAVE_CONFIG rewrites the config file and restarts Klipper,
-        so it is gated on standby, the confirmation phrase and the same
-        server-side command lock as every other printer action.
-        """
-        if not isinstance(payload, dict):
-            raise ValueError("save settings must be an object")
-        if str(payload.get("phrase", "")) != ARM_PHRASE:
-            raise ValueError("confirmation phrase does not match")
-        if not self.allow_printer_commands:
-            raise PermissionError("printer commands are server-side locked")
-        status = (
-            printer_status if printer_status is not None
-            else self._printer_status())
-        print_state = (status.get("print_stats") or {}).get("state")
-        if print_state != "standby":
-            # SAVE_CONFIG restarts the firmware. Doing that during a print
-            # would abort it.
-            raise ValueError(
-                "printer must be in standby, not %s" % (print_state or "?"))
-        self._send_script("SAVE_CONFIG")
-        self.last_save = {
-            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "restarted": True,
-            "printerAction": "save_config_and_restart",
-        }
         return self.status()
 
     def record_advisory(self, recommendation, source=None):
