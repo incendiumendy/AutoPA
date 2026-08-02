@@ -218,7 +218,7 @@ class PaSweepRunnerTest(unittest.TestCase):
                 runner.run(
                     run_payload(),
                     printer_status=printer_status(homed_axes=homed_axes))
-            self.assertIn("homed", str(raised.exception))
+            self.assertIn("G28", str(raised.exception))
         self.assertEqual(scripts, [])
 
     def test_fully_homed_printer_is_accepted(self):

@@ -168,11 +168,21 @@ type SweepApply = {
   at?: string;
 };
 
+type SweepAnalysis = {
+  busy: boolean;
+  stage: string | null;
+  secondsRemaining: number;
+};
+
 type SweepStatus = {
   allowPrinterCommands: boolean;
   confirmationPhraseRequired: boolean;
   lastRun: SweepLastRun | null;
   lastApply: SweepApply | null;
+  // Stage 2 and stage 3 share the retract runner, so each keeps its own slot.
+  lastApplyByMode?: Record<string, SweepApply | null>;
+  lastRunByMode?: Record<string, SweepLastRun | null>;
+  analysis?: SweepAnalysis;
   lastError: string | null;
   printerAction: "none";
 };
@@ -502,12 +512,35 @@ function describeStageResult(
 function StageResult({
   apply,
   unit,
+  analyzing,
+  ranSomething,
 }: {
   apply: SweepApply | null;
   unit: "K" | "mm";
+  analyzing?: boolean;
+  ranSomething?: boolean;
 }) {
+  // Three distinct states, because "nothing shown" used to mean all of them:
+  // never run, still analyzing, and finished.
+  if (analyzing) {
+    return (
+      <p className="stage-result tone-busy">
+        <strong>Daten werden ausgewertet …</strong> Aufnahme, Zeitausrichtung,
+        Qualitätsprüfung und Auswertung laufen. Das dauert nach dem Sweep noch
+        etwa eine Minute. Solange lässt sich keine weitere Stufe starten.
+      </p>
+    );
+  }
   const result = describeStageResult(apply, unit);
-  if (!result) return null;
+  if (!result) {
+    if (!ranSomething) return null;
+    return (
+      <p className="stage-result tone-warn">
+        <strong>Kein Ergebnis.</strong> Die Stufe lief, hat aber nichts
+        Auswertbares geliefert.
+      </p>
+    );
+  }
   return (
     <p className={`stage-result tone-${result.tone}`}>
       <strong>Ergebnis:</strong> {result.text}
@@ -1338,8 +1371,8 @@ export default function Home() {
       setStatus((current) => ({ ...current, paSweep: result }));
       setPaMessage(
         result.lastRun
-          ? `PA-Sweep gesendet: ${result.lastRun.kValues?.length ?? "?"} Werte à ${result.lastRun.cycles} Zyklen. Am Drucker bleiben!`
-          : "PA-Sweep gesendet.",
+          ? `Läuft: ${result.lastRun.kValues?.length ?? "?"} K-Werte à ${result.lastRun.cycles} Zyklen. Bleib währenddessen am Drucker — er extrudiert. Das Ergebnis erscheint unten, sobald die Auswertung fertig ist.`
+          : "Stufe 1 gestartet.",
       );
       setPaConfirming(false);
     } catch (error) {
@@ -1394,8 +1427,8 @@ export default function Home() {
           : (run?.retractValues?.length ?? "?");
       setSweepMessage(
         run
-          ? `${run.mode === "speed" ? "Geschwindigkeits" : "Längen"}-Sweep gesendet: ${count} Werte à ${run.cycles} Zyklen, ca. ${Math.round(run.estimatedDurationS)} s. Am Drucker bleiben!`
-          : "Sweep gesendet.",
+          ? `Läuft: ${count} ${run.mode === "speed" ? "Geschwindigkeiten" : "Längen"} à ${run.cycles} Zyklen, ca. ${Math.round(run.estimatedDurationS)} s. Bleib währenddessen am Drucker — er extrudiert. Das Ergebnis erscheint unten, sobald die Auswertung fertig ist.`
+          : "Sweep gestartet.",
       );
       setSweepConfirming(false);
       setSpeedConfirming(false);
@@ -1442,6 +1475,12 @@ export default function Home() {
       status.printer.retractLength,
       status.printer.retractSpeed,
     ],
+  );
+
+  // While an analysis runs the capture manager is busy and a second stage
+  // would fight it for the recorder, so every stage button is held.
+  const analysisBusy = Boolean(
+    status.sweep.analysis?.busy || status.paSweep.analysis?.busy,
   );
 
   const paConfirmSummary = useMemo(() => {
@@ -1748,19 +1787,16 @@ export default function Home() {
                   Live-Daten
                   <span className="field-hint">
                     {status.capture.manager?.active
-                      ? "laufen — Sweep gesperrt"
-                      : "aus — Sweep möglich"}
+                      ? "laufen — werden für den Sweep kurz übernommen"
+                      : "aus"}
                   </span>
                 </label>
               </div>
 
-              {status.capture.manager?.active && (
+              {analysisBusy && (
                 <p className="control-note warn">
-                  Die Live-Aufnahme läuft. Ein Sweep braucht eine{" "}
-                  <strong>eigene</strong> Aufnahme, sonst gibt es hinterher
-                  keine auswertbaren Marker. Schalte die Live-Daten oben aus,
-                  bevor du eine Stufe startest — der Server weist den Start
-                  sonst ab.
+                  Eine Auswertung läuft gerade. Die Stufen sind so lange
+                  gesperrt, damit sich die Messungen nicht vermischen.
                 </p>
               )}
 
@@ -1864,6 +1900,7 @@ export default function Home() {
                     className="primary-button"
                     disabled={
                       paBusy ||
+                      analysisBusy ||
                       !status.paSweep.allowPrinterCommands ||
                       status.printer.printState !== "standby"
                     }
@@ -1879,7 +1916,15 @@ export default function Home() {
                   K-Werte à {status.paSweep.lastRun.cycles} Zyklen
                 </p>
               )}
-              <StageResult apply={status.paSweep.lastApply} unit="K" />
+              <StageResult
+                apply={status.paSweep.lastApply}
+                unit="K"
+                analyzing={
+                  status.paSweep.analysis?.busy &&
+                  status.paSweep.analysis?.stage === "pa"
+                }
+                ranSomething={!!status.paSweep.lastRun}
+              />
               {paMessage && <p className="control-message">{paMessage}</p>}
               {status.paSweep.lastError && (
                 <p className="control-error">{status.paSweep.lastError}</p>
@@ -1986,6 +2031,7 @@ export default function Home() {
                     className="primary-button"
                     disabled={
                       sweepBusy ||
+                      analysisBusy ||
                       !status.sweep.allowPrinterCommands ||
                       status.printer.printState !== "standby"
                     }
@@ -2026,9 +2072,16 @@ export default function Home() {
                   {status.sweep.lastRun.cycles} Zyklen
                 </p>
               )}
-              {status.sweep.lastRun?.mode !== "speed" && (
-                <StageResult apply={status.sweep.lastApply} unit="mm" />
-              )}
+              <StageResult
+                apply={status.sweep.lastApplyByMode?.length ?? null}
+                unit="mm"
+                analyzing={
+                  status.sweep.analysis?.busy &&
+                  status.sweep.analysis?.stage === "retract" &&
+                  status.sweep.lastRun?.mode !== "speed"
+                }
+                ranSomething={!!status.sweep.lastRunByMode?.length}
+              />
               {sweepMessage && <p className="control-message">{sweepMessage}</p>}
               {status.sweep.lastError && (
                 <p className="control-error">{status.sweep.lastError}</p>
@@ -2144,6 +2197,7 @@ export default function Home() {
                     className="primary-button"
                     disabled={
                       sweepBusy ||
+                      analysisBusy ||
                       !status.sweep.allowPrinterCommands ||
                       status.printer.printState !== "standby"
                     }
@@ -2153,9 +2207,16 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              {status.sweep.lastRun?.mode === "speed" && (
-                <StageResult apply={status.sweep.lastApply} unit="mm" />
-              )}
+              <StageResult
+                apply={status.sweep.lastApplyByMode?.speed ?? null}
+                unit="mm"
+                analyzing={
+                  status.sweep.analysis?.busy &&
+                  status.sweep.analysis?.stage === "retract" &&
+                  status.sweep.lastRun?.mode === "speed"
+                }
+                ranSomething={!!status.sweep.lastRunByMode?.speed}
+              />
 
               <div className="phase-divider">
                 <span>Zum Schluss · nur im laufenden Druck</span>

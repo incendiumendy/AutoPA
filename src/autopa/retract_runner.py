@@ -62,8 +62,9 @@ def _require_homed(status):
         return
     if not all(axis in str(homed).lower() for axis in "xyz"):
         raise ValueError(
-            "printer must be homed first (G28), homed axes: %s"
-            % (homed or "none"))
+            "Der Drucker ist nicht gehomt. Fahre zuerst G28 — der Sweep "
+            "bewegt die Achsen und braucht bekannte Positionen. "
+            "(gehomte Achsen: %s)" % (homed or "keine"))
 
 
 def _moonraker_post(url, payload, timeout=5.0):
@@ -71,8 +72,33 @@ def _moonraker_post(url, payload, timeout=5.0):
     request = urllib.request.Request(
         url, data=body, method="POST",
         headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        # Klipper rejects a script through AUTOPA_VALIDATE with a plain
+        # message - a cold nozzle, unhomed axes, too little Z clearance.
+        # Letting the HTTPError escape killed the request thread and the
+        # browser saw an empty reply instead of the reason.
+        raise ValueError(_moonraker_error(exc)) from None
+
+
+def _moonraker_error(exc):
+    detail = ""
+    try:
+        payload = json.loads(exc.read().decode("utf-8", "replace"))
+        detail = (
+            payload.get("error", {}).get("message")
+            if isinstance(payload.get("error"), dict)
+            else payload.get("error") or payload.get("message") or "")
+    except Exception:
+        detail = ""
+    detail = str(detail or exc.reason or "").strip()
+    if "min_extrude_temp" in detail or "hot extruder" in detail:
+        return ("Die Düse ist zu kalt. Heize das eingelegte Filament auf "
+                "Drucktemperatur, bevor du eine Stufe startest — der Sweep "
+                "extrudiert und Klipper lehnt kaltes Extrudieren ab.")
+    return "Klipper hat den Sweep abgelehnt: %s" % (detail or "unbekannt")
 
 
 class RetractSweepRunner:
@@ -91,7 +117,12 @@ class RetractSweepRunner:
         self.last_run = None
         self.last_error = None
         self.last_apply = None
+        # Stage 2 and stage 3 share this runner, so one slot meant the later
+        # stage erased the earlier one's result and its card went blank.
+        self.last_apply_by_mode = {"length": None, "speed": None}
+        self.last_run_by_mode = {"length": None, "speed": None}
         self.last_save = None
+        self.active_mode = "length"
 
     def _moonraker_script(self, script):
         return _moonraker_post(
@@ -162,6 +193,8 @@ class RetractSweepRunner:
             "lastRun": self.last_run,
             "lastError": self.last_error,
             "lastApply": self.last_apply,
+            "lastApplyByMode": self.last_apply_by_mode,
+            "lastRunByMode": self.last_run_by_mode,
             "lastSave": self.last_save,
             "printerAction": "none",
         }
@@ -242,6 +275,16 @@ class RetractSweepRunner:
             "applyBoundMm": apply_bound,
         }
         self.last_error = None
+        self.active_mode = "speed" if speed_sweep else "length"
+        self.last_run_by_mode[self.active_mode] = self.last_run
+        # A fresh run invalidates whatever this stage reported before.
+        self.last_apply_by_mode[self.active_mode] = None
+        return self.status()
+
+    def _record(self, entry):
+        """Store a result as the latest and under the stage that produced it."""
+        self.last_apply = entry
+        self.last_apply_by_mode[self.active_mode] = entry
         return self.status()
 
     def apply_recommendation(self, recommended, source=None):
@@ -256,7 +299,7 @@ class RetractSweepRunner:
         decision = apply_decision(recommended, current, bound)
         applied_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if not decision["eligible"]:
-            self.last_apply = {
+            self._record({
                 "applied": False,
                 "reason": decision["reason"],
                 "recommendedMm": decision["recommended"],
@@ -266,11 +309,11 @@ class RetractSweepRunner:
                 "source": source,
                 "at": applied_at,
                 "printerAction": "none",
-            }
+            })
             return self.status()
         self._send_script(
             "SET_RETRACTION RETRACT_LENGTH=%.3f" % decision["recommended"])
-        self.last_apply = {
+        self._record({
             "applied": True,
             "runtimeOnly": True,
             "previousMm": decision["current"],
@@ -280,7 +323,7 @@ class RetractSweepRunner:
             "source": source,
             "at": applied_at,
             "printerAction": "set_retraction_runtime_only",
-        }
+        })
         return self.status()
 
     def save_config(self, payload, printer_status=None):
@@ -322,7 +365,7 @@ class RetractSweepRunner:
         speed policy that does not exist, and the ALPS cannot detect a
         skipping extruder, so the value is reported and left to the operator.
         """
-        self.last_apply = {
+        self._record({
             "applied": False,
             "advisory": True,
             "reason": "manual_apply_required",
@@ -334,17 +377,17 @@ class RetractSweepRunner:
             "source": source,
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "printerAction": "none",
-        }
+        })
         return self.status()
 
     def record_apply_skip(self, reason, source=None):
-        self.last_apply = {
+        self._record({
             "applied": False,
             "reason": str(reason),
             "source": source,
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "printerAction": "none",
-        }
+        })
         return self.status()
 
     def record_error(self, message):

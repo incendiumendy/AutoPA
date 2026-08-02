@@ -84,6 +84,32 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Der Sweep übernimmt eine laufende Live-Aufnahme jetzt selbst, statt den
+  Start abzulehnen: Die Vorschau ist ein passiver Recorder, Starten und
+  Stoppen senden keinen G-Code. Nach der Auswertung wird sie wieder
+  eingeschaltet — auch dann, wenn der Sweep abgelehnt wurde. Eine an einen
+  laufenden Druck gebundene Aufnahme wird nie angetastet.
+
+- Während einer laufenden Auswertung lässt sich keine weitere Stufe starten,
+  und die Karte zeigt „Daten werden ausgewertet …". Zuvor liefen die
+  Pipelines überlappend: Eine Stufe las am Ende den *aktuellen*
+  Datensatznamen und wertete damit die Messung der nächsten Stufe aus.
+
+- Jede Stufe merkt sich den Datensatz, den sie selbst angelegt hat.
+
+- Stufe 2 und Stufe 3 haben eigene Ergebnis-Slots. Sie teilen sich einen
+  Runner; mit nur einem Slot löschte die spätere Stufe das Ergebnis der
+  früheren und die Karte blieb leer.
+
+- Ablehnungen von Klipper erreichen jetzt die Oberfläche. Ein `HTTPError`
+  aus Moonraker beendete zuvor den Request-Thread, der Browser bekam eine
+  leere Antwort und es war nicht erkennbar, warum nichts passierte. Kalte
+  Düse und fehlendes Homing werden im Klartext erklärt.
+
+- Klarere Statusmeldungen: „Am Drucker bleiben!" stand dort, wo das Ergebnis
+  erscheint, und las sich wie eines. Ergebnisse unterscheiden jetzt sichtbar
+  zwischen „noch nie gelaufen", „wird ausgewertet" und „fertig".
+
 - Vorfüllen zwischen den Kandidatenwerten: Beide Sweeps füllen die Düse
   jetzt nicht nur vor dem ersten Zyklus, sondern auch zwischen je zwei
   Werten neu. Ohne das startet jeder Kandidat aus dem Zustand des vorigen —
@@ -93,10 +119,10 @@
   jetzt auch im Dashboard vorhanden (Standard 10 mm); zuvor sendete es
   immer 0.
 
-- Ein Sweep bricht jetzt ab, **bevor** der Drucker sich bewegt, wenn bereits
-  eine Messung läuft. Er konnte seine eigene Aufnahme dann nicht anlegen und
-  lieferte hinterher `no_capture_dataset` — nach vollem Lauf mit
-  verbrauchtem Filament.
+- Ein Sweep läuft nicht mehr los, wenn er seine eigene Aufnahme nicht
+  anlegen kann. Zuvor extrudierte er den kompletten Lauf und meldete erst
+  danach `no_capture_dataset`. Eine laufende Live-Vorschau ist dabei kein
+  Hindernis mehr — sie wird übernommen (siehe oben).
 
 - Die Pipeline wertet nur noch Datensätze aus, die der Sweep selbst gestartet
   hat. Der Capture-Manager meldet nach dem Stoppen weiter den vorherigen
@@ -278,6 +304,31 @@
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
 
+- a sweep now takes over a running live capture instead of refusing to
+  start: the preview is a passive recorder and starting or stopping it sends
+  no G-code. It is switched back on after the analysis, including when the
+  sweep was rejected. A capture bound to a running print is never touched.
+
+- no second stage can start while an analysis is running, and the card shows
+  "Daten werden ausgewertet …". The pipelines used to overlap: a stage read
+  the *current* dataset name at the end and analyzed the next stage's
+  measurement with it.
+
+- each stage now remembers the dataset it created itself.
+
+- stage 2 and stage 3 have their own result slots. They share one runner, so
+  a single slot let the later stage erase the earlier one's result and the
+  card went blank.
+
+- Klipper's rejections now reach the interface. An `HTTPError` from Moonraker
+  killed the request thread, the browser saw an empty reply and there was no
+  way to tell why nothing happened. A cold nozzle and missing homing are
+  explained in plain language.
+
+- clearer status messages: "Am Drucker bleiben!" sat where the result
+  appears and read like one. Results now visibly distinguish never-run,
+  analyzing and finished.
+
 - reprime between candidates: both sweeps now refill the nozzle not only
   before the first cycle but between every pair of values. Without it each
   candidate starts from whatever the previous one left behind - a long
@@ -287,9 +338,10 @@
   now exists in the dashboard too (default 10 mm); it previously always sent
   zero.
 
-- a sweep now refuses **before** the printer moves when a capture is already
-  running. It could not create its own recording in that case and reported
-  `no_capture_dataset` afterwards - after a full run and wasted filament.
+- a sweep no longer starts when it cannot create its own recording. It used
+  to extrude through the whole run and only then report
+  `no_capture_dataset`. A running live preview is no longer an obstacle - it
+  is taken over instead (see above).
 
 - the pipeline only analyzes datasets the sweep started itself. The capture
   manager keeps reporting the previous dataset name after a stop, so without
