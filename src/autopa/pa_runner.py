@@ -42,6 +42,7 @@ class PaSweepRunner:
         self.last_error = None
         self.last_apply = None
         self.last_analysis = None
+        self.running = None
 
     def _moonraker_script(self, script):
         return _moonraker_post(
@@ -91,6 +92,7 @@ class PaSweepRunner:
             "lastError": self.last_error,
             "lastApply": self.last_apply,
             "lastAnalysis": self.last_analysis,
+            "running": self.run_progress(),
             "printerAction": "none",
         }
 
@@ -135,7 +137,11 @@ class PaSweepRunner:
 
         self._script_timeout = min(
             max(plan["estimated_sweep_duration_s"] + 120.0, 60.0), 900.0)
-        self._send_script(gcode)
+        self._begin_run(plan["estimated_sweep_duration_s"])
+        try:
+            self._send_script(gcode)
+        finally:
+            self._end_run()
         self.last_run = {
             "startedAt": time.strftime(
                 "%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -212,6 +218,38 @@ class PaSweepRunner:
             "printerAction": "none",
         }
         return self.status()
+
+    def _begin_run(self, estimated_s):
+        """Mark the sweep as running before the script is sent.
+
+        Moonraker only answers once Klipper has executed the whole script, so
+        without this the server has no signal at all while the printer is
+        moving: last_run was written after the fact and the card still showed
+        its start button.
+        """
+        self.running = {
+            "active": True,
+            "startedMonotonic": time.monotonic(),
+            "estimatedDurationS": float(estimated_s),
+        }
+
+    def _end_run(self):
+        self.running = None
+
+    def run_progress(self):
+        """How far the running sweep has got, for the stage progress bar."""
+        if not self.running:
+            return {"active": False, "percent": 0, "secondsRemaining": 0}
+        total = max(1.0, self.running["estimatedDurationS"])
+        elapsed = time.monotonic() - self.running["startedMonotonic"]
+        # Capped just below 100 so the bar never claims to be finished while
+        # the printer is still moving.
+        percent = int(min(99.0, max(0.0, elapsed / total * 100.0)))
+        return {
+            "active": True,
+            "percent": percent,
+            "secondsRemaining": int(max(0.0, total - elapsed)),
+        }
 
     def record_analysis(self, result):
         """Keep the per-candidate cost curve so the card can plot it."""

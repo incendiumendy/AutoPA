@@ -176,7 +176,9 @@ type SweepApply = {
 type SweepAnalysis = {
   busy: boolean;
   stage: string | null;
+  percent: number;
   secondsRemaining: number;
+  step: string | null;
 };
 
 type SweepStatus = {
@@ -634,6 +636,57 @@ function StageChart({
   );
 }
 
+type StageProgress = {
+  active: boolean;
+  percent: number;
+  secondsRemaining: number;
+};
+
+const ANALYSIS_STEPS: Record<string, string> = {
+  capture: "Messung läuft noch",
+  finishing_capture: "Aufnahme wird abgeschlossen",
+  aligning: "Zeitausrichtung auf Klippers print_time",
+  quality: "Qualitätsprüfung der Messkette",
+  analyzing: "Auswertung der Messzyklen",
+};
+
+function StageProgressBar({
+  label,
+  percent,
+  secondsRemaining,
+  detail,
+}: {
+  label: string;
+  percent: number;
+  secondsRemaining: number;
+  detail?: string | null;
+}) {
+  return (
+    <div className="stage-progress" role="status" aria-live="polite">
+      <div className="stage-progress-head">
+        <span>{label}</span>
+        <span className="stage-progress-value">{percent} %</span>
+      </div>
+      <div className="stage-progress-track">
+        <div
+          className="stage-progress-fill"
+          style={{ width: `${Math.max(2, Math.min(100, percent))}%` }}
+        />
+      </div>
+      <p className="stage-progress-note">
+        {detail ? `${detail} · ` : ""}
+        {secondsRemaining > 0
+          ? `noch etwa ${secondsRemaining} s`
+          : "gleich fertig"}
+        {" · nicht am Drucker eingreifen"}
+      </p>
+    </div>
+  );
+}
+
+// One control per stage, showing exactly one of four states. The start
+// button used to stay visible while the sweep ran and while the analysis
+// worked - merely disabled - which read as if nothing had been triggered.
 function StageAction({
   applied,
   busy,
@@ -642,6 +695,16 @@ function StageAction({
   onStart,
   onSave,
   saveBusy,
+  running,
+  analyzing,
+  analysisPercent,
+  analysisSeconds,
+  analysisStep,
+  confirmingSave,
+  saveSummary,
+  onSaveConfirm,
+  onSaveCancel,
+  blockedReason,
 }: {
   applied: boolean;
   busy: boolean;
@@ -650,7 +713,63 @@ function StageAction({
   onStart: () => void;
   onSave: () => void;
   saveBusy: boolean;
+  running?: StageProgress | null;
+  analyzing?: boolean;
+  analysisPercent?: number;
+  analysisSeconds?: number;
+  analysisStep?: string | null;
+  confirmingSave?: boolean;
+  saveSummary?: string;
+  onSaveConfirm?: () => void;
+  onSaveCancel?: () => void;
+  blockedReason?: string | null;
 }) {
+  if (running?.active) {
+    return (
+      <StageProgressBar
+        label="Sweep läuft — der Drucker extrudiert"
+        percent={running.percent}
+        secondsRemaining={running.secondsRemaining}
+        detail="Bleib am Drucker"
+      />
+    );
+  }
+  if (analyzing) {
+    return (
+      <StageProgressBar
+        label="Daten werden ausgewertet"
+        percent={analysisPercent ?? 0}
+        secondsRemaining={analysisSeconds ?? 0}
+        detail={ANALYSIS_STEPS[analysisStep ?? ""] ?? null}
+      />
+    );
+  }
+  if (confirmingSave) {
+    // In place of the button, not at the foot of the card: the dialog used
+    // to open far below its trigger and had to be scrolled to.
+    return (
+      <div className="confirm-box">
+        <p>{saveSummary}</p>
+        <div className="confirm-actions">
+          <button
+            type="button"
+            className="danger-button"
+            disabled={saveBusy}
+            onClick={onSaveConfirm}
+          >
+            Ja, speichern und neu starten
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onSaveCancel}
+          >
+            Abbrechen
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (applied) {
     return (
       <div className="arming-row">
@@ -671,6 +790,13 @@ function StageAction({
           Nochmal messen
         </button>
       </div>
+    );
+  }
+  if (blockedReason) {
+    return (
+      <p className="stage-blocked">
+        <strong>Gesperrt.</strong> {blockedReason}
+      </p>
     );
   }
   return (
@@ -700,15 +826,7 @@ function StageResult({
 }) {
   // Three distinct states, because "nothing shown" used to mean all of them:
   // never run, still analyzing, and finished.
-  if (analyzing) {
-    return (
-      <p className="stage-result tone-busy">
-        <strong>Daten werden ausgewertet …</strong> Aufnahme, Zeitausrichtung,
-        Qualitätsprüfung und Auswertung laufen. Das dauert nach dem Sweep noch
-        etwa eine Minute. Solange lässt sich keine weitere Stufe starten.
-      </p>
-    );
-  }
+  if (analyzing) return null;
   const result = describeStageResult(apply, unit);
   if (!result) {
     if (!ranSomething) return null;
@@ -1165,7 +1283,9 @@ export default function Home() {
   const [speedVStop, setSpeedVStop] = useState("60");
   const [speedVStep, setSpeedVStep] = useState("10");
   const [speedConfirming, setSpeedConfirming] = useState(false);
-  const [saveConfirming, setSaveConfirming] = useState(false);
+  const [saveConfirmStage, setSaveConfirmStage] = useState<
+    string | null
+  >(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -1517,7 +1637,7 @@ export default function Home() {
         "SAVE_CONFIG gesendet. Klipper startet neu — das Dashboard verliert" +
           " kurz die Verbindung und meldet sich von selbst zurück.",
       );
-      setSaveConfirming(false);
+      setSaveConfirmStage(null);
     } catch (error) {
       setSaveMessage(
         error instanceof Error ? error.message : "Speichern fehlgeschlagen",
@@ -1547,11 +1667,10 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
       setStatus((current) => ({ ...current, paSweep: result }));
-      setPaMessage(
-        result.lastRun
-          ? `Läuft: ${result.lastRun.kValues?.length ?? "?"} K-Werte à ${result.lastRun.cycles} Zyklen. Bleib währenddessen am Drucker — er extrudiert. Das Ergebnis erscheint unten, sobald die Auswertung fertig ist.`
-          : "Stufe 1 gestartet.",
-      );
+      // No success text: the progress bar below reports the run while it
+      // happens, and a leftover "Läuft …" line beside a finished result was
+      // the most confusing thing on the card. Errors still persist.
+      setPaMessage("");
       setPaConfirming(false);
     } catch (error) {
       setPaMessage(
@@ -1598,16 +1717,7 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Sweep abgelehnt");
       setStatus((current) => ({ ...current, sweep: result }));
-      const run = result.lastRun;
-      const count =
-        run?.mode === "speed"
-          ? (run.speedValues?.length ?? "?")
-          : (run?.retractValues?.length ?? "?");
-      setSweepMessage(
-        run
-          ? `Läuft: ${count} ${run.mode === "speed" ? "Geschwindigkeiten" : "Längen"} à ${run.cycles} Zyklen, ca. ${Math.round(run.estimatedDurationS)} s. Bleib währenddessen am Drucker — er extrudiert. Das Ergebnis erscheint unten, sobald die Auswertung fertig ist.`
-          : "Sweep gestartet.",
-      );
+      setSweepMessage("");
       setSweepConfirming(false);
       setSpeedConfirming(false);
     } catch (error) {
@@ -1660,6 +1770,18 @@ export default function Home() {
   const analysisBusy = Boolean(
     status.sweep.analysis?.busy || status.paSweep.analysis?.busy,
   );
+  const sweepRunning = Boolean(
+    status.sweep.running?.active || status.paSweep.running?.active,
+  );
+  // Why an idle stage cannot be started right now. Shown instead of the
+  // start button: a disabled button still looks like an invitation.
+  const stageBlockedReason = analysisBusy
+    ? "Eine andere Stufe wird gerade ausgewertet. Warte, bis dort das Ergebnis steht — sonst vermischen sich die Messungen."
+    : sweepRunning
+      ? "Ein Sweep läuft gerade. Warte, bis er fertig ist."
+      : status.printer.printState !== "standby"
+        ? `Der Drucker ist „${status.printer.printState || "unbekannt"}“. Die Stufen laufen nur im Standby.`
+        : null;
 
   const paConfirmSummary = useMemo(() => {
     const values = countSweepValues(paKStart, paKStop, paKStep);
@@ -2082,8 +2204,20 @@ export default function Home() {
                   }
                   startLabel="Stufe 1 starten …"
                   onStart={() => setPaConfirming(true)}
-                  onSave={() => setSaveConfirming(true)}
+                  onSave={() => setSaveConfirmStage("pa")}
                   saveBusy={saveBusy}
+                  confirmingSave={saveConfirmStage === "pa"}
+                  saveSummary={saveConfirmSummary}
+                  onSaveConfirm={postSaveConfig}
+                  onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
+                  running={status.paSweep.running}
+                  analyzing={Boolean(
+                    status.paSweep.analysis?.busy && status.paSweep.analysis?.stage === "pa"
+                  )}
+                  analysisPercent={status.paSweep.analysis?.percent}
+                  analysisSeconds={status.paSweep.analysis?.secondsRemaining}
+                  analysisStep={status.paSweep.analysis?.step}
                 />
               )}
               {status.paSweep.lastRun && (
@@ -2215,8 +2349,22 @@ export default function Home() {
                   }
                   startLabel="Stufe 2 starten …"
                   onStart={() => setSweepConfirming(true)}
-                  onSave={() => setSaveConfirming(true)}
+                  onSave={() => setSaveConfirmStage("length")}
                   saveBusy={saveBusy}
+                  confirmingSave={saveConfirmStage === "length"}
+                  saveSummary={saveConfirmSummary}
+                  onSaveConfirm={postSaveConfig}
+                  onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
+                  running={status.sweep.running}
+                  analyzing={Boolean(
+                    status.sweep.analysis?.busy &&
+                    status.sweep.analysis?.stage === "retract" &&
+                    status.sweep.lastRun?.mode !== "speed"
+                  )}
+                  analysisPercent={status.sweep.analysis?.percent}
+                  analysisSeconds={status.sweep.analysis?.secondsRemaining}
+                  analysisStep={status.sweep.analysis?.step}
                 />
               )}
 
@@ -2383,8 +2531,22 @@ export default function Home() {
                   }
                   startLabel="Stufe 3 starten …"
                   onStart={() => setSpeedConfirming(true)}
-                  onSave={() => setSaveConfirming(true)}
+                  onSave={() => setSaveConfirmStage("speed")}
                   saveBusy={saveBusy}
+                  confirmingSave={saveConfirmStage === "speed"}
+                  saveSummary={saveConfirmSummary}
+                  onSaveConfirm={postSaveConfig}
+                  onSaveCancel={() => setSaveConfirmStage(null)}
+                  blockedReason={stageBlockedReason}
+                  running={status.sweep.running}
+                  analyzing={Boolean(
+                    status.sweep.analysis?.busy &&
+                    status.sweep.analysis?.stage === "retract" &&
+                    status.sweep.lastRun?.mode === "speed"
+                  )}
+                  analysisPercent={status.sweep.analysis?.percent}
+                  analysisSeconds={status.sweep.analysis?.secondsRemaining}
+                  analysisStep={status.sweep.analysis?.step}
                 />
               )}
               <StageChart
@@ -2607,32 +2769,10 @@ export default function Home() {
                 startet Klipper neu.</strong> Klipper legt die Werte in seinem
                 Autosave-Block ab; bei geschichteten Konfigurationen wie RatOS
                 kann das mit eigenen Einträgen kollidieren. Nur im Standby
-                möglich. Prüfe vorher, dass die aktiven Werte wirklich die
-                sind, die du behalten willst.
+                möglich. Die Bestätigung erscheint direkt bei der Stufe, an
+                der du klickst — hier steht nur die Erklärung.
               </p>
 
-              {saveConfirming && (
-                <div className="confirm-box">
-                  <p>{saveConfirmSummary}</p>
-                  <div className="confirm-actions">
-                    <button
-                      type="button"
-                      className="danger-button"
-                      disabled={saveBusy}
-                      onClick={postSaveConfig}
-                    >
-                      Ja, speichern und neu starten
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => setSaveConfirming(false)}
-                    >
-                      Abbrechen
-                    </button>
-                  </div>
-                </div>
-              )}
               {saveMessage && <p className="control-message">{saveMessage}</p>}
             </article>
           </div>

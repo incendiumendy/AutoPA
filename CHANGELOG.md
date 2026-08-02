@@ -84,6 +84,33 @@
   Übernahme stillschweigend. Beide Werte nutzen jetzt `None` als
   Kennzeichen für „noch nicht geschehen".
 
+- Eine Stufe, die gerade nicht gestartet werden kann, zeigt jetzt den Grund
+  statt eines deaktivierten Buttons. Für `.primary-button` gab es überhaupt
+  kein `:disabled`-Styling — ein gesperrter Start-Button sah exakt aus wie
+  ein bereiter und lud weiter zum Klicken ein. Das gilt für alle drei Stufen.
+
+- Fortschrittsbalken je Stufe statt eines wirkungslosen Start-Buttons:
+  Während des Sweeps und während der Auswertung zeigt die Stufe einen
+  Balken mit Prozent, Restzeit und benanntem Schritt (Aufnahme abschließen,
+  Zeitausrichtung, Qualitätsprüfung, Auswertung). Zuvor blieb „Stufe
+  starten" sichtbar und nur deaktiviert, was so aussah, als sei nichts
+  passiert. Der Balken hat eine laufende Animation, weil der Prozentwert aus
+  einer Schätzung stammt und zwischendurch stehen bleiben kann; er wird bei
+  `prefers-reduced-motion` abgeschaltet und bleibt unter 100 %, solange
+  gearbeitet wird.
+
+- Der Server meldet den Sweep jetzt als laufend, bevor das Skript gesendet
+  wird. Moonraker antwortet erst, wenn Klipper das gesamte Skript abgearbeitet
+  hat — bis dahin gab es serverseitig überhaupt kein Signal.
+
+- Die Bestätigung für `SAVE_CONFIG` öffnet sich an der Stelle des Buttons in
+  der jeweiligen Stufe statt am Fuß der Karte, wo man erst dorthin scrollen
+  musste.
+
+- Die Meldung „Läuft: …" verschwindet nicht mehr erst mit der nächsten
+  Aktion, sondern entfällt ganz — den Zustand zeigt der Balken. Fehlermeldungen
+  bleiben unverändert stehen.
+
 - Messkurve je Stufe: Unter jeder Stufe steht jetzt die Kostenkurve über
   alle gemessenen Werte statt nur der empfohlenen Zahl. Der beste Wert ist
   hervorgehoben, Kandidaten ohne genügend verwertbare Zyklen bleiben als
@@ -320,6 +347,30 @@
   `min_update_interval_s` (30 s by default) the controller silently
   discarded the first apply. Both now use `None` to mean "has not happened
   yet".
+
+- a stage that cannot be started right now shows the reason instead of a
+  disabled button. There was no `:disabled` styling for `.primary-button` at
+  all, so a blocked start button looked exactly like a ready one and kept
+  inviting the click. This applies to all three stages.
+
+- per-stage progress bar instead of an inert start button: while the sweep
+  runs and while the analysis works, the stage shows a bar with percentage,
+  remaining time and the named step (finishing the capture, time alignment,
+  quality gate, analysis). The start button used to stay visible and merely
+  disabled, which looked as though nothing had happened. The bar animates
+  because the percentage comes from an estimate and can stall; the animation
+  is dropped under `prefers-reduced-motion` and the bar stays below 100 %
+  while work continues.
+
+- the server now reports a sweep as running before the script is sent.
+  Moonraker only answers once Klipper has executed the whole script, so until
+  then there was no server-side signal at all.
+
+- the `SAVE_CONFIG` confirmation opens where its button is, inside the stage,
+  rather than at the foot of the card where it had to be scrolled to.
+
+- the "Läuft: …" message is gone rather than lingering beside a finished
+  result; the bar carries that state now. Error messages still persist.
 
 - per-stage cost curve: each stage now shows the cost across all measured
   values instead of only the recommended number. The best value is
