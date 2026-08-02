@@ -247,6 +247,8 @@ class DashboardData:
         self._sweep_pipeline_busy = False
         self._sweep_pipeline_stage = None
         self._sweep_pipeline_until = 0.0
+        self._sweep_pipeline_total = 1.0
+        self._sweep_pipeline_step = None
         self._resume_live_after_sweep = False
         self.align_fn = align_fn or align_dataset
 
@@ -420,6 +422,9 @@ class DashboardData:
         self._sweep_pipeline_busy = True
         self._sweep_pipeline_stage = kind
         self._sweep_pipeline_until = time.monotonic() + wait
+        self._sweep_pipeline_total = wait
+        self._sweep_pipeline_step = "capture"
+
         thread = threading.Thread(
             target=self._post_sweep_pipeline,
             args=(kind, wait, started_capture),
@@ -428,14 +433,26 @@ class DashboardData:
         thread.start()
 
     def analysis_status(self):
-        """What the post-sweep pipeline is doing, for the stage buttons."""
+        """What the post-sweep pipeline is doing, for the stage progress bar."""
         if not self._sweep_pipeline_busy:
-            return {"busy": False, "stage": None, "secondsRemaining": 0}
+            return {
+                "busy": False,
+                "stage": None,
+                "percent": 0,
+                "secondsRemaining": 0,
+                "step": None,
+            }
         remaining = max(0.0, self._sweep_pipeline_until - time.monotonic())
+        total = max(1.0, self._sweep_pipeline_total)
+        # Capped below 100: the wait is an estimate, and a bar sitting at
+        # 100 % while work continues looks stuck rather than nearly done.
+        percent = int(min(99.0, max(0.0, (total - remaining) / total * 100.0)))
         return {
             "busy": True,
             "stage": self._sweep_pipeline_stage,
+            "percent": percent,
             "secondsRemaining": int(remaining),
+            "step": self._sweep_pipeline_step,
         }
 
     def _post_sweep_pipeline(self, kind, wait, started_capture):
@@ -448,18 +465,22 @@ class DashboardData:
         source = None
         try:
             self.sleep_fn(wait)
+            self._sweep_pipeline_step = "finishing_capture"
             dataset_dir = self._finish_sweep_capture(started_capture)
             if not dataset_dir:
                 runner.record_apply_skip("no_capture_dataset")
                 return
             source = os.path.basename(dataset_dir)
             try:
+                self._sweep_pipeline_step = "aligning"
                 self.align_fn(dataset_dir)
+                self._sweep_pipeline_step = "quality"
                 self.quality_fn(dataset_dir)
             except Exception:
                 # A missing alignment or quality gate fails the analysis
                 # closed.
                 pass
+            self._sweep_pipeline_step = "analyzing"
             result = analyzer(dataset_dir) or {}
             # Keep the whole cost curve, not just the winner: a single number
             # hides a noisy curve and a winner sitting at the range edge.

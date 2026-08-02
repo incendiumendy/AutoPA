@@ -223,9 +223,17 @@ test("save-config is opt-in, standby only and states the consequence", async () 
   // a value; two buttons side by side only confused. Its gate lives in
   // StageAction, which every stage passes the same standby check to.
   assert.match(page, /danger-button is-emphasised/);
-  const action = page.slice(page.indexOf("function StageAction"));
-  assert.match(action.slice(0, 1400), /SAVE_CONFIG — Wert dauerhaft speichern/);
-  assert.match(action.slice(0, 1400), /Nochmal messen/);
+  const action = page.slice(
+    page.indexOf("function StageAction"),
+    page.indexOf("function StageResult"),
+  );
+  assert.match(action, /SAVE_CONFIG — Wert dauerhaft speichern/);
+  assert.match(action, /Nochmal messen/);
+  // Exactly one control is visible at a time: running, analysing, applied or
+  // idle. The start button used to stay on screen through all of them.
+  assert.match(action, /if \(running\?\.active\)/);
+  assert.match(action, /if \(analyzing\)/);
+  assert.match(action, /if \(applied\)/);
   const stageUse = page.slice(page.indexOf("<StageAction"));
   assert.match(stageUse.slice(0, 700), /printState !== "standby"/);
 
@@ -322,4 +330,35 @@ test("plots the cost curve behind every recommendation", async () => {
   assert.match(page, /zu wenig verwertbare Zyklen/);
   assert.match(css, /\.stage-chart \{/);
   assert.match(css, /\.stage-chart \.bar-best \{/);
+});
+
+test("shows progress instead of a dead start button while working", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // Moonraker only answers once the whole script has run, so the server has
+  // to mark the sweep as started before sending or there is no signal at all
+  // while the printer moves.
+  assert.match(page, /running=\{status\.paSweep\.running\}/);
+  assert.match(page, /running=\{status\.sweep\.running\}/);
+  assert.match(page, /Sweep läuft — der Drucker extrudiert/);
+  assert.match(page, /Daten werden ausgewertet/);
+
+  // Named steps, so a bar that sits still still says what is happening.
+  assert.match(page, /ANALYSIS_STEPS/);
+  for (const step of ["finishing_capture", "aligning", "quality", "analyzing"]) {
+    assert.match(page, new RegExp(step));
+  }
+
+  // The percentage is an estimate and can stall; a moving sheen shows the
+  // work is alive rather than stuck.
+  assert.match(css, /\.stage-progress-fill \{/);
+  assert.match(css, /autopa-progress-sheen/);
+  assert.match(css, /prefers-reduced-motion/);
 });
