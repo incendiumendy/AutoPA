@@ -425,3 +425,30 @@ test("a missing result names its cause instead of blaming a safety gate", async 
   const wired = page.match(/diagnosis=\{diagnoseNoResult\(/g) ?? [];
   assert.equal(wired.length, 3);
 });
+
+test("warns about a weak signal and asks for repeat runs", async () => {
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  // A weak measurement that still ranks is worse than one that fails: the
+  // winner changes from run to run while looking settled. Five runs on the
+  // printer produced 0.01, 0.09, 0.03, 0.09 and no result at all.
+  assert.match(page, /function SignalNotice/);
+  assert.match(page, /Signalproblem/);
+  assert.match(page, /Miss mehrmals/);
+  assert.match(page, /zwei bis drei Durchg(ä|a)nge/);
+  // A close winner is unreliable even when every cycle was usable.
+  assert.match(page, /Abstand zum Zweitbesten/);
+  // Pooling several captures is what autopa.analyze already supports.
+  assert.match(page, /autopa\.analyze/);
+  assert.match(css, /\.signal-notice \{/);
+
+  const wired = page.match(/<SignalNotice analysis=/g) ?? [];
+  assert.equal(wired.length, 3, "every stage warns about its own signal");
+});
